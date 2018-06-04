@@ -30,6 +30,13 @@ class DatabaseCursorContext(object):
         self._db = get_database_connection(application_name=self._application_name)
         self._cursor = self._db.cursor()
 
+        self._cursor.execute("""
+            SET geqo_effort to 10;
+            SET max_parallel_workers_per_gather TO 8;
+            SET temp_buffers to "32GB";
+            SET work_mem to "1GB";
+            SET temp_tablespaces to "ssdspace";""")
+
         self._cursor.execute("PREPARE get_neighbour_frames AS "
            "SELECT index, fc_id, timestamp FROM plotter_frame WHERE frame_id = $1 LIMIT 1")
 
@@ -41,7 +48,7 @@ class DatabaseCursorContext(object):
            "WHERE id = $1")
 
         self._cursor.execute("PREPARE get_bee_detections AS "
-           "SELECT timestamp, frame_id, x_pos, y_pos, orientation, track_id FROM bb_detections "
+           "SELECT timestamp, frame_id, x_pos, y_pos, orientation, track_id FROM bb_detections_2016_stitched "
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
         
         return self._cursor
@@ -172,7 +179,7 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None, cursor
     frame_ids = [f[1] for f in frames]
     
     if not cursor_is_prepared:
-        cursor.execute("SELECT timestamp, frame_id, x_pos, y_pos, orientation, track_id FROM bb_detections WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
+        cursor.execute("SELECT timestamp, frame_id, x_pos, y_pos, orientation, track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
                         (frame_ids, bee_id))
     else:
         cursor.execute("EXECUTE get_bee_detections (%s, %s)", (frame_ids, bee_id))
