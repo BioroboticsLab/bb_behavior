@@ -61,7 +61,7 @@ class FeatureTransform(object):
 
     def __call__(self, x):
         return self._fun(x)
-        
+
 class DataReader(object):
 
     _dataframe = None
@@ -205,6 +205,7 @@ class DataReader(object):
                                     frames=frames,
                                     interpolate=True, verbose=False,
                                     cursor=thread_context, cursor_is_prepared=True)
+        n_frames = n_frames or len(frames)
         if n_frames is not None and np.sum(mask) < n_frames // 2:
             return None
         assert np.sum(np.isnan(traj)) == 0 or np.sum(np.isnan(traj)) == traj.size
@@ -242,7 +243,11 @@ class DataReader(object):
         def split_timespan_frames(frames, **kwargs):
             trajectories = []
             for bee_id in self._bee_ids:
-                trajectories.append(DataReader.bee_id_to_trajectory(bee_id=bee_id, frames=frames))
+                traj = DataReader.bee_id_to_trajectory(bee_id=bee_id, frames=frames)
+                # If at least one of the bees has no data available, we can't continue.
+                if traj is None:
+                    return None
+                trajectories.append(traj)
 
             for index in self._tqdm(range(self._frame_margin, len(frames) - self._frame_margin - 1), desc="Calculating camera data", leave=False):
                 timestamp, frame_id, cam_id = frames[index]
