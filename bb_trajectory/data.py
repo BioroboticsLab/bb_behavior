@@ -199,12 +199,16 @@ class DataReader(object):
 
         if frame_id is not None:
             frame_id = int(frame_id)
-        traj, mask = db.get_interpolated_trajectory(
+        traj = db.get_interpolated_trajectory(
                                     int(bee_id),
                                     frame_id=frame_id, n_frames=n_frames,
                                     frames=frames,
                                     interpolate=True, verbose=False,
                                     cursor=thread_context, cursor_is_prepared=True)
+        if traj is None:
+            return None
+        traj, mask = traj
+
         n_frames = n_frames or len(frames)
         if n_frames is not None and np.sum(mask) < n_frames // 2:
             return None
@@ -238,7 +242,9 @@ class DataReader(object):
         def fetch_cam_id_timespan_data(cam_id, **kwargs):
             margin_in_seconds = self._frame_margin * 0.33
             frames = db.get_frames(cam_id=cam_id, ts_from=self._from_timestamp - margin_in_seconds, ts_to=self._to_timestamp + margin_in_seconds)
-            yield frames
+            if len(frames) == 0:
+                return None
+            return frames
 
         def split_timespan_frames(frames, **kwargs):
             trajectories = []
