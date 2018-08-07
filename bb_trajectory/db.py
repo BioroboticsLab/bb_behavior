@@ -48,9 +48,12 @@ class DatabaseCursorContext(object):
            "WHERE id = $1")
 
         self._cursor.execute("PREPARE get_bee_detections AS "
-           "SELECT timestamp, frame_id, x_pos, y_pos, orientation, track_id FROM bb_detections_2016_stitched "
+           "SELECT timestamp, frame_id, x_pos AS x, y_pos AS y, orientation, track_id FROM bb_detections_2016_stitched "
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
-        
+
+        self._cursor.execute("PREPARE get_bee_detections_hive_coords AS "
+           "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation, track_id FROM bb_detections_2016_stitched "
+           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
         return self._cursor
 
     def __exit__(self, type, value, traceback):
@@ -150,7 +153,9 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
     return get_frames(cam_id=None, ts_from=ts_from, ts_to=ts_to, cursor=cursor, cursor_is_prepared=cursor_is_prepared, frame_container_id=frame_container_id)
         
     
-def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None, cursor=None, cursor_is_prepared=False, **kwargs):
+def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
+                        use_hive_coords=False,
+                        cursor=None, cursor_is_prepared=False, **kwargs):
     """Fetches all detections for a bee between some time points or around a center frame.
         The results include "None" when no detection was found for a time step.
         
@@ -159,6 +164,7 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None, cursor
             verbose: whether to print extra information
             frame_id: optional center frame ID, use with n_frames or seconds (see get_neighbour_frames)
             frames: optional list of frames containing tuples of (timestamp, frame_id, cam_id), see get_frames
+            use_hive_coords: (default False) whether to retrieve hive coordinates
             cursor: optional database cursor to work on
             
         Returns:
@@ -179,10 +185,14 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None, cursor
     frame_ids = [f[1] for f in frames]
     
     if not cursor_is_prepared:
-        cursor.execute("SELECT timestamp, frame_id, x_pos, y_pos, orientation, track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
+        coords_string = "x_pos AS x, y_pos AS y"
+        if use_hive_coords:
+            coords_string = "x_pos_hive AS x, y_pos_hive AS y"
+        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", orientation, track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
                         (frame_ids, bee_id))
     else:
-        cursor.execute("EXECUTE get_bee_detections (%s, %s)", (frame_ids, bee_id))
+        prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
+        cursor.execute("EXECUTE " + prepared_statement_name + " (%s, %s)", (frame_ids, bee_id))
     detections = cursor.fetchall()
     
     results = []
