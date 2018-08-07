@@ -2,6 +2,7 @@ import psycopg2
 import math
 import numba
 import numpy as np
+from . import utils
 
 server_address = "localhost:5432"
 
@@ -12,7 +13,7 @@ def get_database_connection(application_name="bb_trajectory"):
     if ":" in database_host:
         database_host, database_port = database_host.split(":")
     return psycopg2.connect("dbname='beesbook' user='reader' host='{}' port='{}' password='reader'".format(database_host, database_port),
-                          application_name="get_neighbour_frames")
+                          application_name=application_name)
 
 class DatabaseCursorContext(object):
     """Helper objects to create a database cursor with pre-defined queries.
@@ -342,3 +343,97 @@ def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=
     if interpolate:
         mask = interpolate_trajectory(trajectory)
     return trajectory, mask
+
+def sample_frame_ids(n_samples=100, ts_from=None, ts_to=None, cursor=None):
+    """Uniformely samples random frame IDs.
+    
+    Arguments:
+        n_samples: Number of frame_ids to return.
+        ts_from: Optional. Unix timestamp. Only return frames starting from this timestamp.
+        ts_to: Optional. Unix timestamp. Only return frames before this timestamp.
+            Required when ts_from is set.
+        cursor: Optional. Database cursor connected to the DB.
+        
+    Returns:
+        List containing tuples with (frame_id, timestamp).
+    """
+    if cursor is None:
+        with get_database_connection(application_name="sample_frames") as db:
+            cursor = db.cursor()
+            return sample_frame_ids(n_samples=n_samples, ts_from=ts_from, ts_to=ts_to, cursor=cursor)
+    timestamp_condition = " WHERE True "
+    query_parameters = None
+    if ts_from is not None:
+        query_parameters = (ts_from, ts_to)
+        timestamp_condition = " WHERE timestamp >= %s AND timestamp < %s ";
+        
+    query = "SELECT COUNT(*) from plotter_frame" + timestamp_condition
+    cursor.execute(query, query_parameters)
+    count = cursor.fetchone()[0]
+    if count == 0:
+        return []
+
+    fraction_to_sample = 100 * 1.10 * n_samples / count
+    if fraction_to_sample < 0.01:
+        fraction_to_sample = 0.01
+    query = ("""
+    SELECT * FROM (SELECT frame_id, timestamp FROM plotter_frame
+    TABLESAMPLE BERNOULLI({:5.3f})
+    """ + timestamp_condition + """) as sub
+    ORDER BY random()
+    LIMIT {}
+    """).format(fraction_to_sample, n_samples)
+
+    cursor.execute(query, query_parameters)
+    
+    return cursor.fetchall()
+
+def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, confidence_threshold=0.25, cursor=None):
+    """Takes a frame id and finds all the possible interactions consisting of close bees.
+    
+    Arguments:
+        frame_id: Database frame id of the frame to search.
+        max_distance: Maximum hive distance (mm) of interaction partners.
+        min_distance: Minimum hive distance (mm) of interaction partners.
+        confidence_threshold: Minimum confidence of detections. Others are ignored.
+        cursor: Optional. Database cursor connected to the DB.
+        
+    Returns:
+        List containing interaction partners as tuples of
+        (frame_id, bee_id0, bee_id1, detection_idx0, detection_idx1,
+        x_pos_hive0, y_pos_hive0, x_pos_hive1, x_pos_hive1, cam_id).
+    """
+    import pandas
+
+    if cursor is None:
+        with get_database_connection(application_name="sample_frames") as db:
+            cursor = db.cursor()
+            return find_interactions_in_frame(frame_id=frame_id,
+                                              max_distance=max_distance,
+                                              min_distance=min_distance,
+                                              confidence_threshold=confidence_threshold,
+                                              cursor=cursor)
+        
+    query = """
+    SELECT x_pos_hive, y_pos_hive, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
+        WHERE frame_id = %s
+        AND bee_id_confidence >= %s
+    """
+    
+    df = pandas.read_sql_query(query, cursor.connection, coerce_float=False,
+                               params=(int(frame_id), confidence_threshold))
+    if df.shape[0] == 0:
+        return []
+    close_pairs = utils.find_close_points(df[["x_pos_hive", "y_pos_hive"]].values,
+                                   max_distance, min_distance)
+    
+    results = []
+    for (i, j) in close_pairs:
+        results.append((int(frame_id),
+                        int(df.bee_id.iloc[i]), int(df.bee_id.iloc[j]),
+                        int(df.detection_idx.iloc[i]), int(df.detection_idx.iloc[j]),
+                        df.x_pos_hive.iloc[i], df.y_pos_hive.iloc[i],
+                        df.x_pos_hive.iloc[j], df.y_pos_hive.iloc[j],
+                        int(df.cam_id.iloc[j])
+                       ))
+    return results

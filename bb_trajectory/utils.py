@@ -1,6 +1,8 @@
 import multiprocessing, threading
 import inspect
 import queue
+import numpy as np
+import numba
 
 class ParallelPipeline(object):
     
@@ -99,3 +101,26 @@ class ParallelPipeline(object):
             if val is not None:
                 results.append(val)
         return results
+
+@numba.jit(nopython=True, parallel=True)
+def find_close_points(XY, max_distance, min_distance):
+    """Takes a numpy array of positions and finds close indices.
+    
+    Arguments:
+        XY: np.array of shape (N, 2) containing one x, y coordinate pair per row.
+        max_distance: Only pairs closer than this will be returned.
+        min_distance: Only pairs farther away than this will be returned.
+        
+    Returns:
+        List containing close pairs as tuples (i, j) where i and j are indices 0 <= i, j < N and i != j.
+    """
+    results = [(0, 0)]
+    for i in numba.prange(XY.shape[0]):
+        subresults = [(0, 0)]
+        for j in range(i + 1, XY.shape[0]):
+            vector = XY[i, :] - XY[j, :]
+            distance = np.sqrt((vector[0] ** 2.0) + (vector[1] ** 2.0))
+            if (distance < max_distance) and (distance > min_distance):
+                subresults.append((i, j))
+        results += subresults[1:]
+    return results[1:]
