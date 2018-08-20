@@ -53,7 +53,7 @@ class DatabaseCursorContext(object):
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
 
         self._cursor.execute("PREPARE get_bee_detections_hive_coords AS "
-           "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation, track_id FROM bb_detections_2016_stitched "
+           "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM bb_detections_2016_stitched "
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
         return self._cursor
 
@@ -186,10 +186,10 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
     frame_ids = [f[1] for f in frames]
     
     if not cursor_is_prepared:
-        coords_string = "x_pos AS x, y_pos AS y"
+        coords_string = "x_pos AS x, y_pos AS y, orientation"
         if use_hive_coords:
-            coords_string = "x_pos_hive AS x, y_pos_hive AS y"
-        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", orientation, track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
+            coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
+        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
                         (frame_ids, bee_id))
     else:
         prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
@@ -365,7 +365,7 @@ def sample_frame_ids(n_samples=100, ts_from=None, ts_to=None, cursor=None):
     query_parameters = None
     if ts_from is not None:
         query_parameters = (ts_from, ts_to)
-        timestamp_condition = " WHERE timestamp >= %s AND timestamp < %s ";
+        timestamp_condition = " WHERE timestamp >= %s AND timestamp < %s "
         
     query = "SELECT COUNT(*) from plotter_frame" + timestamp_condition
     cursor.execute(query, query_parameters)
