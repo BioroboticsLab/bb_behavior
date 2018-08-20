@@ -415,7 +415,7 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
                                               cursor=cursor)
         
     query = """
-    SELECT x_pos_hive, y_pos_hive, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
+    SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
         WHERE frame_id = %s
         AND bee_id_confidence >= %s
     """
@@ -424,6 +424,7 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
                                params=(int(frame_id), confidence_threshold))
     if df.shape[0] == 0:
         return []
+    
     close_pairs = utils.find_close_points(df[["x_pos_hive", "y_pos_hive"]].values,
                                    max_distance, min_distance)
     
@@ -432,8 +433,8 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
         results.append((int(frame_id),
                         int(df.bee_id.iloc[i]), int(df.bee_id.iloc[j]),
                         int(df.detection_idx.iloc[i]), int(df.detection_idx.iloc[j]),
-                        df.x_pos_hive.iloc[i], df.y_pos_hive.iloc[i],
-                        df.x_pos_hive.iloc[j], df.y_pos_hive.iloc[j],
+                        df.x_pos_hive.iloc[i], df.y_pos_hive.iloc[i], df.orientation_hive.iloc[i],
+                        df.x_pos_hive.iloc[j], df.y_pos_hive.iloc[j], df.orientation_hive.iloc[j],
                         int(df.cam_id.iloc[j])
                        ))
     return results
