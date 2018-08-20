@@ -102,7 +102,6 @@ class ParallelPipeline(object):
                 results.append(val)
         return results
 
-@numba.jit(nopython=True, parallel=True)
 def find_close_points(XY, max_distance, min_distance):
     """Takes a numpy array of positions and finds close indices.
     
@@ -112,15 +111,13 @@ def find_close_points(XY, max_distance, min_distance):
         min_distance: Only pairs farther away than this will be returned.
         
     Returns:
-        List containing close pairs as tuples (i, j) where i and j are indices 0 <= i, j < N and i != j.
+        numpy.array of shape (M, 2) containing M close pairs as tuples (i, j) where i and j are indices 0 <= i, j < N and i != j.
     """
-    results = [(0, 0)]
-    for i in numba.prange(XY.shape[0]):
-        subresults = [(0, 0)]
-        for j in range(i + 1, XY.shape[0]):
-            vector = XY[i, :] - XY[j, :]
-            distance = np.sqrt((vector[0] ** 2.0) + (vector[1] ** 2.0))
-            if (distance < max_distance) and (distance > min_distance):
-                subresults.append((i, j))
-        results += subresults[1:]
-    return results[1:]
+    import scipy.spatial
+    tree = scipy.spatial.cKDTree(XY)
+    close_points = tree.query_pairs(max_distance, output_type="ndarray")
+    coords1 = XY[close_points[:, 0], :]
+    coords2 = XY[close_points[:, 1], :]
+    distance = np.linalg.norm(coords1 - coords2, axis=1)
+    assert np.all(distance <= max_distance)
+    return close_points[distance >= min_distance, :]
