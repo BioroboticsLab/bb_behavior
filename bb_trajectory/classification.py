@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 # source: https://stackoverflow.com/a/38176770
 def iterate_minibatches(inputs, targets, batchsize, shuffle=False):
-    assert inputs.shape[0] == targets.shape[0]
+    if targets is not None:
+        assert inputs.shape[0] == targets.shape[0]
     if shuffle:
         indices = np.arange(inputs.shape[0])
         np.random.shuffle(indices)
@@ -15,7 +16,8 @@ def iterate_minibatches(inputs, targets, batchsize, shuffle=False):
             excerpt = indices[start_idx:start_idx + batchsize]
         else:
             excerpt = slice(start_idx, start_idx + batchsize)
-        yield inputs[excerpt], targets[excerpt]
+        sub_targets = targets[excerpt] if targets is not None else None
+        yield inputs[excerpt], sub_targets
 
 def optimization_objective_function(make_model_fun, train_model_fun=None, datareader=None, scorer=None, X=None, Y=None, groups=None, *args, **kwargs):
     if scorer is None:
