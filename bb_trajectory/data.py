@@ -91,6 +91,8 @@ class DataReader(object):
     _test_X, _test_Y = None, None
     _train_groups, _test_groups = None, None
 
+    _verbose = False
+
     def __init__(self,
                     dataframe=None, sample_count=None,
                     from_timestamp=None, to_timestamp=None, bee_ids=None,
@@ -242,6 +244,8 @@ class DataReader(object):
         def fetch_cam_id_timespan_data(cam_id, **kwargs):
             margin_in_seconds = self._frame_margin * 0.33
             frames = db.get_frames(cam_id=cam_id, ts_from=self._from_timestamp - margin_in_seconds, ts_to=self._to_timestamp + margin_in_seconds)
+            if self._verbose:
+                print("{} frames found for cam id {} for the provided timespan.".format(len(frames), cam_id))
             if len(frames) == 0:
                 return None
             return frames
@@ -252,6 +256,8 @@ class DataReader(object):
                 traj = DataReader.bee_id_to_trajectory(bee_id=bee_id, frames=frames)
                 # If at least one of the bees has no data available, we can't continue.
                 if traj is None:
+                    if self._verbose:
+                        print("No data found for bee {} in the frames {}".format(bee_id, frames))
                     return None
                 trajectories.append(traj)
 
@@ -289,6 +295,8 @@ class DataReader(object):
         
         data_processing = [validate_data, store_data]
         if self.samples is not None:
+            if self._verbose:
+                print("Generating data for samples of the provided dataframe.")
             pipeline = utils.ParallelPipeline(jobs=[iter_samples, fetch_data_from_sample] + data_processing,
                                         n_thread_map={1:self._n_threads}, thread_context_factory=make_thread_context)
             pipeline()
@@ -296,12 +304,16 @@ class DataReader(object):
             assert self._from_timestamp is not None
             assert self._to_timestamp is not None
             assert self._bee_ids is not None
+            if self._verbose:
+                print("Fetching data for the provided bee ids and timespan.")
             pipeline = utils.ParallelPipeline(jobs=[iter_cam_ids, fetch_cam_id_timespan_data, split_timespan_frames] + data_processing,
                                         n_thread_map={1:4})
             
             self._dataframe = []
             pipeline()
             self._dataframe = pandas.DataFrame(self._dataframe)
+            if self._verbose:
+                print("Generated {} trajectory samples.".format(len(self._dataset)))
 
         if "group" in self.samples.columns:
             self._groups = self.samples.group.values[self._valid_sample_indices]
