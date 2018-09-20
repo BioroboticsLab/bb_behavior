@@ -43,7 +43,7 @@ class CNN1D(torch.nn.Module):
     def __init__(self, n_features, timesteps, num_layers=2, n_channels=9,\
                  kernel_size=5, conv_dropout=0.33, max_pooling=True, batch_norm=True,
                  initial_batch_size=64, grow_batch_size=True, initial_learning_rate=0.001, learning_rate_decay=0.98, train_epochs=100,
-                 cuda=True, optimizer="adam"):
+                 cuda=True, optimizer="adam", class_weights=None):
         super(CNN1D, self).__init__()
 
         self.num_layers = num_layers
@@ -57,6 +57,7 @@ class CNN1D(torch.nn.Module):
         self.initial_learning_rate = initial_learning_rate
         self.learning_rate_decay = learning_rate_decay
         self.optimizer = optimizer
+        self.class_weights = class_weights
 
         self.convs = []
         self.n_features = n_features
@@ -101,7 +102,6 @@ class CNN1D(torch.nn.Module):
         inputs = self.convs(inputs)
         #print (inputs.size())
         inputs = inputs.view(batch_size, self.out_channels * self.o_depth)
-        True
         inputs = self.denses(inputs)
         #print("ALL IS FINE.")
         #inputs = self.denses(inputs)
@@ -205,12 +205,19 @@ class CNN1D(torch.nn.Module):
 
                 Y_predicted = self.forward(batch_X, verbose=False, cuda=cuda)
 
-                #batch_Y = onehot.transform(batch_Y)
-                batch_Y = torch.from_numpy(batch_Y)
-                batch_Y = torch.autograd.Variable(batch_Y.float())
-                if cuda:
-                    batch_Y = batch_Y.cuda()
-                loss = criterion(Y_predicted, batch_Y)
+                if batch_Y is not None:
+                    if self.class_weights is not None:
+                        weights = np.ones(shape=(batch_Y.shape[0]), dtype=np.float32)
+                        for label, weight in self.class_weights.items():
+                            weights[batch_Y[:, 0] == label] = weight
+                        weights = torch.from_numpy(weights)
+                        criterion.weights = weights
+                    #batch_Y = onehot.transform(batch_Y)
+                    batch_Y = torch.from_numpy(batch_Y)
+                    batch_Y = torch.autograd.Variable(batch_Y.float())
+                    if cuda:
+                        batch_Y = batch_Y.cuda()
+                    loss = criterion(Y_predicted, batch_Y)
 
                 self.zero_grad()
                 loss.backward()
