@@ -15,14 +15,14 @@ dep_links = [str(req_line.url) for req_line in install_reqs]
 
 
 setup(
-    name='bb_trajectory',
+    name='bb_behavior',
     version='0.1',
-    description='BeesBook trajectory analysis',
+    description='BeesBook trajectory, image, and behavior analysis',
     author='David Dormagen',
     author_email='david.dormagen@fu-berlin.de',
-    url='https://github.com/BioroboticsLab/bb_trajectory/',
+    url='https://github.com/BioroboticsLab/bb_behavior/',
     install_requires=reqs,
     dependency_links=dep_links,
-    packages=['bb_trajectory'],
-    package_dir={'bb_trajectory': 'bb_trajectory/'}
+    packages=['bb_behavior'],
+    package_dir={'bb_behavior': 'bb_behavior/'}
 )
