@@ -126,7 +126,7 @@ class DataReader(object):
 
         if self._feature_procs == "auto":
             self._feature_procs = [FeatureTransform.Normalizer(), FeatureTransform.Angle2Geometric()]
-
+        
         if self._feature_procs is not None:    
             for ft in self._feature_procs:
                 self._features = ft.validate_features(self._features)
@@ -336,6 +336,8 @@ class DataReader(object):
     def create_features(self):
         if len(self.dataset) == 0:
             raise ValueError("Need a valid dataset.")
+        if self._feature_procs is None:
+            raise ValueError("feature_procs must not be None (hint: use 'auto' or load features from a file).")
         self._X = []
         self._Y = np.zeros(shape=(len(self.dataset), 1), dtype=np.float32)
 
