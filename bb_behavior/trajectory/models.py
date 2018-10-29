@@ -1,4 +1,4 @@
-from . import classification
+from ..utils import model_selection
 import torch
 import torch.nn
 import sklearn.metrics
@@ -193,7 +193,7 @@ class CNN1D(torch.nn.Module):
 
             epoch_optimizer = optimizer(self.parameters(), lr=current_learning_rate)
 
-            minibatch_iter = enumerate(classification.iterate_minibatches(X, y, batchsize=current_batch_size, shuffle=True))
+            minibatch_iter = enumerate(model_selection.iterate_minibatches(X, y, batchsize=current_batch_size, shuffle=True))
             for minibatch_idx, (batch_X, batch_Y) in minibatch_iter:
                 #print(batch_X.shape)
                 #break
@@ -290,7 +290,7 @@ class CNN1D(torch.nn.Module):
             if test_X is not None:
                 print("Test set report:")
                 y_predicted_test = self.predict_proba(test_X, cuda=cuda)
-                classification.display_classification_report(y_predicted_test, test_y, figsize=(2 * figsize[1], 2 * figsize[1]))
+                model_selection.display_classification_report(y_predicted_test, test_y, figsize=(2 * figsize[1], 2 * figsize[1]))
                 print("Train set report:")
                 y_predicted_train = self.predict_proba(X, cuda=cuda)
-                classification.display_classification_report(y_predicted_train, y, figsize=(2 * figsize[1], 2 * figsize[1]))
+                model_selection.display_classification_report(y_predicted_train, y, figsize=(2 * figsize[1], 2 * figsize[1]))
