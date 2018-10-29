@@ -1,5 +1,4 @@
 import psycopg2
-from . import utils
 
 server_address = "localhost:5432"
 
