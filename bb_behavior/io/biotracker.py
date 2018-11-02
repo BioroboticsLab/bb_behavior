@@ -3,6 +3,38 @@ import pandas as pd
 from ..db.base import get_database_connection
 import datetime
 
+def save_tracks(track_map, filename, timestamps=None, frame_ids=None, track_names=None, meta=None):
+    meta = meta or dict()
+    if timestamps is not None:
+        meta["timestamps"] = timestamps
+    if frame_ids is not None:
+        meta["frame_ids"] = [int(fid) for fid in frame_ids]
+    
+    trajectories = dict(objectName="", valid="true", id="0", childNodes="", meta=meta)
+    
+    for track_idx, (track_id, xy) in enumerate(track_map.items()):
+        track_name = str(track_id)
+        if track_names and track_id in track_names:
+            track_name = track_names[track_id]
+        traj = dict(valid="true", id=str(track_id), childNodes="", objectName=str(track_name))
+        trajectories["Trajectory_{}".format(track_idx)] = traj
+        
+        for node_idx, frame_xy in enumerate(xy):
+            x, y = frame_xy[0], frame_xy[1]
+            node = dict(valid="true", id=str(track_id), coordinateUnit="px",
+                       x=str(x), y=str(y), time="0", timeString="")
+            if timestamps is not None:
+                node["time"] = str(timestamps[node_idx])
+                node["timeString"] = str(datetime.datetime.utcfromtimestamp(timestamps[node_idx]))
+            object_name = track_name
+            if frame_ids is not None:
+                object_name = "{} {}".format(frame_ids[node_idx], track_name)
+            node["objectName"] = object_name
+            
+            traj["Element_{}".format(node_idx)] = node
+    with open(filename, "w") as f:
+        json.dump(trajectories, f)
+
 def load_tracks(tracks_filename):
     with open(tracks_filename) as f:
         tracking_data = json.load(f)
