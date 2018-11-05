@@ -102,6 +102,74 @@ class ParallelPipeline(object):
                 results.append(val)
         return results
 
+class FunctionCacher():
+    """Threadsafe callable that itself takes a function and caches n results.
+    Successive calls will retrieve the n results.
+    Must be reset for the next n calls with reset().
+
+    Example:
+        def expensive_function():
+            # Return something not-threadsafe.
+            return foo
+        cache = FunctionCacher(expensive_function, 4)
+        for img in load_images():
+            cache.reset()
+
+            def thread_fun():
+                cached_foo = cache()
+                cached_foo(img)
+                
+            start_4_threads(thread_fun)
+
+    """
+    def __init__(self, fun, n=None, use_threads=True):
+        """Takes a function and caches the results in a thread-safe way.
+
+        Arguments:
+            fun: callable
+                Callable that returns a value to be cached. Should be thread-safe (if not, set 'n' in advance).
+            n: int
+                If given, 'fun' is called n times and the results are cached in advance.
+            use_threads: bool
+                Whether to use a threading Queue instead of a multiprocessing Queue.
+
+        """
+        self.queue_type = queue.Queue() if use_threads else multiprocessing.Queue
+        self.fun = fun
+        self.available = self.queue_type()
+        self.all = []
+
+        if n is not None:
+            self.reset(n)
+
+    def reset(self, n=0):
+        """Makes the cached results available again.
+        (E.g. if you want to re-use 4 cached results, you have to call reset every 4 calls.
+
+        Arguments:
+            n: integer
+            If given, makes sure that at least n cached results are available.
+            (Can be omitted if specified during construction.)
+        """
+        if len(self.all) < n:
+            for _ in range(len(self.all), n):
+                self.all.append(self.fun())
+        self.available = self.queue_type()
+        for f in self.all:
+            self.available.put(f)
+    def get(self):
+        """Returns a cached result. If no results are available, creates a new one.
+        """
+        if self.available.empty():
+            self.available.put(self.fun())
+            self.all.append(self.fun())
+        return self.available.get()
+    
+    def __call__(self):
+        """Same as get(). Returns a cached result.
+        """
+        return self.get()
+
 def find_close_points(XY, max_distance, min_distance):
     """Takes a numpy array of positions and finds close indices.
     
