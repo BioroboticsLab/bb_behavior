@@ -325,13 +325,6 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
     
     return frame_info, video_dataframe
 
-"""
-def hotfix_cam_timestamps(dw, df):
-    dw.cam_timestamps = dict()
-    for cam_id, sub_df in df.groupby("camID"):
-        dw.cam_timestamps[cam_id] = set(sub_df.timestamp.values)
-    dw.cam_timestamps = {c: list(sorted(t)) for c, t in dw.cam_timestamps.items()}"""
-    
 class PandasTracker():
     def __init__(self, det_score_fun, frag_score_fun):
         self.det_score_fun = det_score_fun
