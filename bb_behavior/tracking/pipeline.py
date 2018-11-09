@@ -479,7 +479,7 @@ def plot_tracks(detections, tracks, fig=None, use_individual_id_for_color=True):
         if use_individual_id_for_color:
             color_idx = id_to_color.index(df.bee_id.iloc[0])
         color = cm(colors[color_idx])
-        bee_id = df.bee_id.values[0]
+        bee_id = int(df.bee_id.values[0])
         plt.scatter(df.xpos, df.ypos, c=color, alpha=0.2)
         plt.plot(df.xpos.values, df.ypos.values, "k--")
         plt.text(float(df.xpos.values[0]), float(df.ypos.values[0]), "#{:02d}({})".format(track_idx, bee_id),
@@ -520,7 +520,7 @@ def display_tracking_results(path, frame_info, detections, tracks, image=None, f
         plt.show()
     
     plt.figure(figsize=(fig_width, 2))
-    plt.hist(tracks.track_confidence)
+    plt.hist(tracks.track_confidence[~pd.isnull(tracks.track_confidence)])
     plt.xlabel("Track confidence\n(track ID correctness)")
     plt.xlim(-0.1, 1.1)
     plt.show()
@@ -562,6 +562,7 @@ def display_tracking_results(path, frame_info, detections, tracks, image=None, f
     # Print information about the identified individuals based on their ID.
     print("Individual statistics:")
     for idx, (bee_id, df) in enumerate(tracks.groupby("bee_id")):
+        bee_id = int(bee_id)
         if df.shape[0] <= 3:
             print("Individual {} in track {} has only {} detection(s). Skipping.".format(
                 bee_id, df.track_id.values[0], df.shape[0]))
