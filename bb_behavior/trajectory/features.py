@@ -1,5 +1,5 @@
-from . import db
-from . import utils
+from .. import db
+from ..utils.processing import ParallelPipeline
 import numpy as np
 import pandas
 from numba import jit
@@ -297,7 +297,7 @@ class DataReader(object):
         if self.samples is not None:
             if self._verbose:
                 print("Generating data for samples of the provided dataframe.")
-            pipeline = utils.ParallelPipeline(jobs=[iter_samples, fetch_data_from_sample] + data_processing,
+            pipeline = ParallelPipeline(jobs=[iter_samples, fetch_data_from_sample] + data_processing,
                                         n_thread_map={1:self._n_threads}, thread_context_factory=make_thread_context)
             pipeline()
         else:
@@ -306,7 +306,7 @@ class DataReader(object):
             assert self._bee_ids is not None
             if self._verbose:
                 print("Fetching data for the provided bee ids and timespan.")
-            pipeline = utils.ParallelPipeline(jobs=[iter_cam_ids, fetch_cam_id_timespan_data, split_timespan_frames] + data_processing,
+            pipeline = ParallelPipeline(jobs=[iter_cam_ids, fetch_cam_id_timespan_data, split_timespan_frames] + data_processing,
                                         n_thread_map={1:4})
             
             self._dataframe = []

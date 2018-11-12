@@ -1,4 +1,4 @@
-from . import data
+from ..trajectory.features import DataReader
 import numpy as np
 import pandas
 import sklearn.metrics
@@ -24,7 +24,7 @@ def optimization_objective_function(make_model_fun, train_model_fun=None, datare
         scorer = sklearn.metrics.make_scorer(sklearn.metrics.accuracy_score)
 
     if datareader is None:
-        datareader = data.DataReader.from_XY(X, Y, groups=groups, features=None)
+        datareader = DataReader.from_XY(X, Y, groups=groups, features=None)
 
     def _make_model_fun():
         return make_model_fun(*args, **kwargs)
