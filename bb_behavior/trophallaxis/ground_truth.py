@@ -11,6 +11,7 @@ Usage:
 import numpy as np
 import pandas as pd
 import skimage.exposure
+import skimage.draw
 import datetime
 import pytz
 
@@ -107,6 +108,7 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
     frames = []
     
     for idx, (ts, frame_id, _) in enumerate(neighbour_frames):
+        is_focal_frame = frame_id == original_frame_id
         decode_n_frames = None
         if idx == 0:
             decode_n_frames = len(neighbour_frames)
@@ -117,20 +119,21 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
             if bee[idx] is not None:
                 xs.append(bee[idx][2])
                 ys.append(bee[idx][3])
-                colors.append(["y", "r"][det_idx])
+                if is_focal_frame:
+                    colors.append("white")
+                else:
+                    colors.append(["gray", "silver"][det_idx])
         if not xs:
             xs, ys, colors = None, None, None
         else:
-            s = 25 if (frame_id == original_frame_id) else 10
-            sizes = [s] * len(xs)
+            sizes = [25] * len(xs)
         im = FramePlotter(frame_id=int(frame_id),
                           xs=xs, ys=ys, colors=colors,
                           sizes=sizes,
                           crop_coordinates=(x, y, w, h),
-                          decode_n_frames=decode_n_frames).get_image()
-        
-        im = skimage.exposure.equalize_adapthist(im)
-        frames.append(im.astype(np.float32))
+                          decode_n_frames=decode_n_frames,
+                          raw=True, scale=1.0).get_image()
+        frames.append(im)
     
     return frames
 
@@ -203,7 +206,7 @@ class GUI():
         
         self.image_widget.clear_output()
         with self.image_widget:
-            fig, axes = plt.subplots(1, 5, figsize=(20, 5))
+            fig, axes = plt.subplots(1, 5, figsize=(40, 10))
             print(f"frame: {frame_id}, {bee_id0} and {bee_id1}")
             plt.title(f"frame: {frame_id}, {bee_name0} and {bee_name1} ({bee_id0} and {bee_id1})")
             middle_frames = frames[int(len(frames) / 2 - len(axes) / 2):]
