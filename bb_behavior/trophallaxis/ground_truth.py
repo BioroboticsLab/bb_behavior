@@ -23,7 +23,7 @@ from ..db import get_neighbour_frames, get_bee_detections
 
 ground_truth_save_path = "/mnt/storage/david/data/beesbook/trophallaxis/ground_truth.csv"
 # When the process of annotating ground-truth data changes, the data version should be increased.
-ground_truth_data_version = 2
+ground_truth_data_version = 3
 
 def load_ground_truth_data():
     """Loads the available ground truth data as a pandas.DataFrame.
@@ -185,9 +185,11 @@ class GUI():
         self.name_widget = ipywidgets.Text(name)
         self.ok = ipywidgets.Button(description="\tTrophallaxis", icon="check-circle")
         self.ok.on_click(lambda x: self.on_click(action="trophallaxis"))
+        self.antennation = ipywidgets.Button(description="\tAntennation", icon="check-circle")
+        self.antennation.on_click(lambda x: self.on_click(action="antennation"))
         self.nope = ipywidgets.Button(description="\tNothing", icon="ban")
         self.nope.on_click(lambda x: self.on_click(action="not trophallaxis"))
-        self.idk = ipywidgets.Button(description="\tMaybe", icon="puzzle-piece")
+        self.idk = ipywidgets.Button(description="\tMaybe troph.", icon="puzzle-piece")
         self.idk.on_click(lambda x: self.on_click(action="unsure"))
         self.skip = ipywidgets.Button(description="\tSkip", icon="recycle")
         self.skip.on_click(lambda x: self.on_click(action="skip"))
@@ -195,8 +197,8 @@ class GUI():
         from IPython.display import display
         display(self.name_widget)
         display(self.image_widget)
-        for button in (self.ok, self.idk, self.nope, self.skip):
-            display(button)
+        display(ipywidgets.VBox([ipywidgets.HBox([self.ok, self.antennation, self.idk]),
+                                ipywidgets.HBox([self.nope, self.skip])]))
         display(self.image_widget2)
 
         self.current_interaction_idx = 0
