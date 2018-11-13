@@ -144,6 +144,7 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
                           crop_coordinates=(x, y, w, h),
                           decode_n_frames=decode_n_frames,
                           raw=True, scale=1.0).get_image()
+        im = skimage.exposure.equalize_adapthist(im)
         frames.append(im)
     
     return frames
