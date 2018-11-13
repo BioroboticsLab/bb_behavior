@@ -95,7 +95,7 @@ class DataReader(object):
 
     def __init__(self,
                     dataframe=None, sample_count=None,
-                    from_timestamp=None, to_timestamp=None, bee_ids=None,
+                    from_timestamp=None, to_timestamp=None, bee_ids=None, use_hive_coords=False,
                     frame_margin=13, target_column="target", progress="tqdm_notebook", n_threads=16, feature_procs="auto"):
         self._dataframe = dataframe
         self._sample_count = sample_count
@@ -107,6 +107,7 @@ class DataReader(object):
         if (self._dataframe is not None or self._sample_count is not None) and (self._from_timestamp is not None or self._bee_ids is not None):
             raise ValueError("The dataframe/sample_count arguments are mutually exclusive with the timestamp/bee_ids arguments.")
 
+        self._use_hive_coords = use_hive_coords
         self._frame_margin = frame_margin
         self._target_column = target_column
         self._n_threads = n_threads
@@ -196,7 +197,7 @@ class DataReader(object):
         return self._dataset
 
     @staticmethod
-    def bee_id_to_trajectory(bee_id, frame_id=None, n_frames=None, frames=None, thread_context=None):
+    def bee_id_to_trajectory(bee_id, frame_id=None, n_frames=None, frames=None, use_hive_coords=False, thread_context=None):
         assert not np.isnan(bee_id)
 
         if frame_id is not None:
@@ -206,7 +207,8 @@ class DataReader(object):
                                     frame_id=frame_id, n_frames=n_frames,
                                     frames=frames,
                                     interpolate=True, verbose=False,
-                                    cursor=thread_context, cursor_is_prepared=True)
+                                    cursor=thread_context, cursor_is_prepared=True,
+                                    use_hive_coords=use_hive_coords)
         if traj is None:
             return None
         traj, mask = traj
@@ -233,7 +235,7 @@ class DataReader(object):
 
         def fetch_data_from_sample(index, bee_ids, frame_id, target, thread_context=None):
             args = [(bee_id, frame_id, self._frame_margin) for bee_id in bee_ids]
-            data = [DataReader.bee_id_to_trajectory(*a, thread_context=thread_context) for a in args]
+            data = [DataReader.bee_id_to_trajectory(*a, use_hive_coords=self._use_hive_coords, thread_context=thread_context) for a in args]
             return index, data, target, bee_ids
 
         # the timespan functions are used when begin & end timestamps are provided.
@@ -253,7 +255,7 @@ class DataReader(object):
         def split_timespan_frames(frames, **kwargs):
             trajectories = []
             for bee_id in self._bee_ids:
-                traj = DataReader.bee_id_to_trajectory(bee_id=bee_id, frames=frames)
+                traj = DataReader.bee_id_to_trajectory(bee_id=bee_id, frames=frames, use_hive_coords=self._use_hive_coords)
                 # If at least one of the bees has no data available, we can't continue.
                 if traj is None:
                     if self._verbose:
