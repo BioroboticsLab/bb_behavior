@@ -33,6 +33,7 @@ def load_ground_truth_data():
 
         1: Beginning. Annotated with half resolution images.
         2: Displayed image changed to full resolution and raw quality.
+        3: Antennation added as a label. Negative class changed to 'nothing' (from 'not trophallaxis').
     Returns:
         pandas.DataFrame
     """
@@ -189,7 +190,7 @@ class GUI():
         self.antennation = ipywidgets.Button(description="\tAntennation", icon="check-circle")
         self.antennation.on_click(lambda x: self.on_click(action="antennation"))
         self.nope = ipywidgets.Button(description="\tNothing", icon="ban")
-        self.nope.on_click(lambda x: self.on_click(action="not trophallaxis"))
+        self.nope.on_click(lambda x: self.on_click(action="nothing"))
         self.idk = ipywidgets.Button(description="\tMaybe troph.", icon="puzzle-piece")
         self.idk.on_click(lambda x: self.on_click(action="unsure"))
         self.skip = ipywidgets.Button(description="\tSkip", icon="recycle")
