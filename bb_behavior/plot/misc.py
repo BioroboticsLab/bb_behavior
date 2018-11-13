@@ -34,7 +34,7 @@ def plot_images_as_video(image_array, dpi=72.0, format="html5", jupyter=True):
     xpixels, ypixels = image_array[0].shape[0], image_array[0].shape[1]
     
     fig = plt.figure(figsize=(ypixels/dpi, xpixels/dpi), dpi=dpi)
-    im = plt.figimage(image_array[0].astype(np.float32))
+    im = plt.figimage(image_array[0].astype(np.float32), cmap="gray")
     def animate(i):
         im.set_array(image_array[i].astype(np.float32))
         return (im,)
