@@ -22,12 +22,23 @@ from bb_backend.api import FramePlotter
 from ..db import get_neighbour_frames, get_bee_detections
 
 ground_truth_save_path = "/mnt/storage/david/data/beesbook/trophallaxis/ground_truth.csv"
-
+# When the process of annotating ground-truth data changes, the data version should be increased.
+ground_truth_data_version = 2
 
 def load_ground_truth_data():
+    """Loads the available ground truth data as a pandas.DataFrame.
+
+    The data has a column 'version'.
+    This column determines different steps in the process of annotating ground truth data.
+
+        1: Beginning. Annotated with half resolution images.
+        2: Displayed image changed to full resolution and raw quality.
+    Returns:
+        pandas.DataFrame
+    """
     global ground_truth_save_path
     try:
-        data = pd.read_csv(ground_truth_save_path, header=None, names=["frame_id", "bee_id0", "bee_id1", "author", "timestamp", "class"])
+        data = pd.read_csv(ground_truth_save_path, header=None, names=["frame_id", "bee_id0", "bee_id1", "author", "timestamp", "label", "version"])
     except:
         return None
     return data
@@ -229,7 +240,7 @@ class GUI():
             frame_id, bee_id0, bee_id1 = self.interactions[self.current_interaction_idx][:3]
             now = datetime.datetime.now(tz=pytz.UTC).timestamp()
             with open(ground_truth_save_path, 'a') as file:
-                file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{action}\n")
+                file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{action},{ground_truth_data_version}\n")
             info_text = f"{action}! \t (sample was {frame_id}, {bee_id0} and {bee_id1})"
         self.view_next_interaction(info_text)
 
