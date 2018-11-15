@@ -39,7 +39,9 @@ def load_ground_truth_data():
     """
     global ground_truth_save_path
     try:
-        data = pd.read_csv(ground_truth_save_path, header=None, names=["frame_id", "bee_id0", "bee_id1", "author", "timestamp", "label", "version"])
+        data = pd.read_csv(ground_truth_save_path, header=None,
+            names=["frame_id", "bee_id0", "bee_id1", "author", "annotation_timestamp", "label", "version"],
+            dtype={"frame_id": np.uint64})
     except:
         return None
     return data
