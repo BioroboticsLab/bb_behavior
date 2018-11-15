@@ -213,6 +213,7 @@ class GUI():
         from ..plot.misc import plot_images_as_video
 
         self.image_widget.clear_output()
+        self.image_widget2.clear_output()
         with self.image_widget:
             if info_text:
                 print(info_text)
@@ -232,9 +233,9 @@ class GUI():
                 ax.set_aspect("equal")
                 ax.set_axis_off()
             plt.show()
-        self.image_widget2.clear_output()
+        
         with self.image_widget2:
-            plot_images_as_video(frames)
+            plot_images_as_video(frames, display_index=True)
 
     def on_click(self, action, name=None):
     

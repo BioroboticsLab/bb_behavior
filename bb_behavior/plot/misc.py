@@ -12,7 +12,7 @@ def draw_ferwar_id_on_axis(ID, ax):
     ax.imshow(im)
     ax.set_axis_off()
 
-def plot_images_as_video(image_array, dpi=72.0, format="html5", jupyter=True):
+def plot_images_as_video(image_array, dpi=72.0, format="html5", jupyter=True, display_index=False):
     """Takes a list of images and plots them as a playable video sequence.
 
     Arguments:
@@ -24,7 +24,8 @@ def plot_images_as_video(image_array, dpi=72.0, format="html5", jupyter=True):
             Format of the video.
         jupyter: bool
             Whether to display the video in a jupyter notebook.
-
+        display_index: bool
+            Whether to display the current frame index as annotated text in the video.
     Returns:
         fig, anim: matplotlib figure, animation object. If jupyter=True, None is returned.
     """
@@ -35,8 +36,11 @@ def plot_images_as_video(image_array, dpi=72.0, format="html5", jupyter=True):
     
     fig = plt.figure(figsize=(ypixels/dpi, xpixels/dpi), dpi=dpi)
     im = plt.figimage(image_array[0].astype(np.float32), cmap="gray")
+    txt = plt.figtext(0.025, 0.94, "", backgroundcolor="gray", size=16)
     def animate(i):
         im.set_array(image_array[i].astype(np.float32))
+        if display_index:
+            txt.set_text(str(i))
         return (im,)
 
     anim = matplotlib.animation.FuncAnimation(fig, animate, frames=len(image_array))
