@@ -86,7 +86,7 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
             return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, cursor=db.cursor(), **kwargs)
     
     frames = frames or sampling.get_neighbour_frames(frame_id=frame_id, cursor=cursor, cursor_is_prepared=cursor_is_prepared, **kwargs)
-    frame_ids = [f[1] for f in frames]
+    frame_ids = [int(f[1]) for f in frames]
     
     if not cursor_is_prepared:
         coords_string = "x_pos AS x, y_pos AS y, orientation"

@@ -116,7 +116,8 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
     
     if frame_id is None:
         raise ValueError("frame_id must not be None.")
-
+    else:
+        frame_id = int(frame_id)
     if cursor is None:
         with base.get_database_connection(application_name="get_neighbour_frames") as db:
             return get_neighbour_frames(frame_id=frame_id, n_frames=n_frames, seconds=seconds, cursor=db.cursor(),
