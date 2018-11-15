@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 try:
-    from setuptools import setup
+    from setuptools import setup, find_packages
 except ImportError:
-    from distutils.core import setup
+    from distutils.core import setup, find_packages
 try: # for pip >= 10
     from pip._internal.req import parse_requirements
 except ImportError: # for pip <= 9.0.3
@@ -23,6 +23,6 @@ setup(
     url='https://github.com/BioroboticsLab/bb_behavior/',
     install_requires=reqs,
     dependency_links=dep_links,
-    packages=['bb_behavior'],
+    packages=find_packages(),
     package_dir={'bb_behavior': 'bb_behavior/'}
 )
