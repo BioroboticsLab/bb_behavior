@@ -150,7 +150,8 @@ class DataReader(object):
         h5f = h5py.File(path, 'w')
         h5f.create_dataset('X', data=self.X)
         h5f.create_dataset('Y', data=self.Y)
-        h5f.create_dataset('groups', data=self.groups)
+        if self.groups is not None:
+            h5f.create_dataset('groups', data=self.groups)
         h5f.create_dataset('features', shape=(len(self._features), 1), dtype="S20", data=[f.encode("ascii", "ignore") for f in self._features])
         h5f.close()
 
@@ -230,10 +231,11 @@ class DataReader(object):
         # iter_samples and fetch_data_from_sample are used when a dataframe with events is provided.
         def iter_samples():
             for i in self._tqdm(range(self.samples.shape[0]), desc="Fetching data"):
+                target = np.float32(self.samples[self._target_column].iloc[i]) if self._target_column is not None else 0.0
                 yield (i,
                         [self.samples[bee].iloc[i] for bee in self._bee_id_columns], # bee_ids
                         self.samples.frame_id.iloc[i], # frame_id
-                        np.float32(self.samples[self._target_column].iloc[i]) # target
+                        target
                         )
 
         def fetch_data_from_sample(index, bee_ids, frame_id, target, thread_context=None):
