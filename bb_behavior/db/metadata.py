@@ -24,7 +24,7 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
     """
     if cursor is None:
         with base.get_database_connection("Frame metadata") as con:
-            return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False)
+            return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False, return_dataframe=return_dataframe)
     if not cursor_is_prepared:
         cursor.execute("PREPARE get_frame_metadata AS "
            "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
