@@ -20,10 +20,11 @@ import bb_utils.ids
 from bb_backend.api import FramePlotter
 
 from ..db import get_neighbour_frames, get_bee_detections
+from ..utils import misc
 
 ground_truth_save_path = "/mnt/storage/david/data/beesbook/trophallaxis/ground_truth.csv"
 # When the process of annotating ground-truth data changes, the data version should be increased.
-ground_truth_data_version = 3
+ground_truth_data_version = 4
 
 def load_ground_truth_data():
     """Loads the available ground truth data as a pandas.DataFrame.
@@ -34,14 +35,15 @@ def load_ground_truth_data():
         1: Beginning. Annotated with half resolution images.
         2: Displayed image changed to full resolution and raw quality.
         3: Antennation added as a label. Negative class changed to 'nothing' (from 'not trophallaxis').
+        4: Slider added to annotate more than one frame at a time.
     Returns:
         pandas.DataFrame
     """
     global ground_truth_save_path
     try:
         data = pd.read_csv(ground_truth_save_path, header=None,
-            names=["frame_id", "bee_id0", "bee_id1", "author", "annotation_timestamp", "label", "version"],
-            dtype={"frame_id": np.uint64})
+            names=["frame_id", "bee_id0", "bee_id1", "author", "annotation_timestamp", "label", "version", "event_id", "event_frame_idx"],
+            dtype={"frame_id": np.uint64, "event_id": np.uint64})
     except:
         return None
     return data
@@ -83,8 +85,8 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
             Width (and height) of the square cutout around the bees.
 
     Returns:
-        list(np.array)
-        List containing grey-scale images.
+        tuple(list(np.array), list(int))
+            First list containing grey-scale images, second list containing the respective frame IDs.
     """
     target_len = n_frames
     
@@ -150,7 +152,7 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
         im = skimage.exposure.equalize_adapthist(im)
         frames.append(im)
     
-    return frames
+    return frames, [f[1] for f in neighbour_frames]
 
 def generate_frames_for_interactions(interactions):
     """Takes a list of frame_ids and bee_ids and wraps get_frames_for_interaction as a generator.
@@ -160,7 +162,7 @@ def generate_frames_for_interactions(interactions):
             List of possible interactions.
     Returns:
         i: int
-        frames: list(np.array)
+        frame_info: tuple(list(np.array), list(int))
         frame_id: int
         bee_id0: int
         bee_id1: int
@@ -170,13 +172,13 @@ def generate_frames_for_interactions(interactions):
     meta = bb_utils.meta.BeeMetaInfo()
     for i in range(len(interactions)):
         frame_id, bee_id0, bee_id1 = interactions[i][:3]
-        frames = get_frames_for_interaction(int(frame_id), bee_id0, bee_id1)
+        frame_info = get_frames_for_interaction(int(frame_id), bee_id0, bee_id1)
         
-        if frames is None:
+        if frame_info is None:
             continue
         bee_name0 = meta.get_beename(bb_utils.ids.BeesbookID.from_ferwar(bee_id0))
         bee_name1 = meta.get_beename(bb_utils.ids.BeesbookID.from_ferwar(bee_id1))
-        yield i, frames, frame_id, bee_id0, bee_id1, bee_name0, bee_name1
+        yield i, frame_info, frame_id, bee_id0, bee_id1, bee_name0, bee_name1
 
 
 class GUI():
@@ -184,7 +186,9 @@ class GUI():
         import ipywidgets
 
         self.image_widget = ipywidgets.Output(layout={'border': '1px solid black'})
-        self.image_widget2 = ipywidgets.Output(layout={'border': '1px solid black'})
+        self.image_widget2 = ipywidgets.Output()
+
+        self.frame_bounds_widgets = [ipywidgets.Output(), ipywidgets.Output()]
 
         self.name_widget = ipywidgets.Text(name)
         self.ok = ipywidgets.Button(description="\tTrophallaxis", icon="check-circle")
@@ -198,20 +202,50 @@ class GUI():
         self.skip = ipywidgets.Button(description="\tSkip", icon="recycle")
         self.skip.on_click(lambda x: self.on_click(action="skip"))
 
+        self.frame_idx_slider = ipywidgets.IntRangeSlider(value=[0, 0], step=1, description="Frames:", min=0,
+            readout=True, readout_format="d", continuous_update=False)
+        self.frame_idx_slider.observe(self.on_slider_changed, names='value')
+
         from IPython.display import display
         display(self.name_widget)
         display(self.image_widget)
-        display(ipywidgets.VBox([ipywidgets.HBox([self.ok, self.antennation, self.idk]),
-                                ipywidgets.HBox([self.nope, self.skip])]))
-        display(self.image_widget2)
+        display(ipywidgets.VBox([
+                    ipywidgets.HBox([self.frame_idx_slider]),
+                    ipywidgets.HBox([self.ok, self.antennation, self.idk]),
+                    ipywidgets.HBox([self.nope, self.skip])
+                    ])
+            )
+        display(ipywidgets.HBox([self.image_widget2, ipywidgets.VBox(self.frame_bounds_widgets)]))
 
         self.current_interaction_idx = 0
         self.generator = None
+    
+    def on_slider_changed(self, change):
+        if self.frames is None:
+            return
+        import matplotlib.pyplot as plt
+        for w in self.frame_bounds_widgets:
+            w.clear_output()
+        
+        def display(im):
+            fig, ax = plt.subplots(figsize=(5, 5))
+            plt.imshow(im, cmap="gray")
+            plt.axis("off")
+            plt.tick_params(axis='both', left='off', top='off', right='off', bottom='off', labelleft='off', labeltop='off', labelright='off', labelbottom='off')
+            fig.subplots_adjust(0,0,1,1)
+            plt.show()
+        with self.frame_bounds_widgets[0]:
+            display(self.frames[change["new"][0]])
+        with self.frame_bounds_widgets[1]:
+            display(self.frames[change["new"][1]])
 
     def view_next_interaction(self, info_text=""):
         import matplotlib.pyplot as plt
         from ..plot.misc import plot_images_as_video
 
+        self.frames = None
+        for w in self.frame_bounds_widgets:
+            w.clear_output()
         self.image_widget.clear_output()
         self.image_widget2.clear_output()
         with self.image_widget:
@@ -219,15 +253,18 @@ class GUI():
                 print(info_text)
             print("Please stand by...\nLoading next frame...")
         
-        self.current_interaction_idx, frames, frame_id, bee_id0, bee_id1, bee_name0, bee_name1 = \
+        self.current_interaction_idx, (self.frames, self.frame_ids), frame_id, bee_id0, bee_id1, bee_name0, bee_name1 = \
                                         next(self.generator)
-        
+
+        self.frame_idx_slider.value = [0, 0]
+        self.frame_idx_slider.max = len(self.frames) - 1
+
         self.image_widget.clear_output()
         with self.image_widget:
             fig, axes = plt.subplots(1, 5, figsize=(40, 10))
             print(f"frame: {frame_id}, {bee_id0} and {bee_id1}")
             plt.title(f"frame: {frame_id}, {bee_name0} and {bee_name1} ({bee_id0} and {bee_id1})")
-            middle_frames = frames[int(len(frames) / 2 - len(axes) / 2):]
+            middle_frames = self.frames[int(len(self.frames) / 2 - len(axes) / 2):]
             for idx, ax in enumerate(axes):
                 ax.imshow(middle_frames[idx], cmap="gray")
                 ax.set_aspect("equal")
@@ -235,7 +272,8 @@ class GUI():
             plt.show()
         
         with self.image_widget2:
-            plot_images_as_video(frames, display_index=True)
+            plot_images_as_video(self.frames, display_index=True)
+
 
     def on_click(self, action, name=None):
     
@@ -244,10 +282,29 @@ class GUI():
         
         info_text = "Skipped..."
         if action != "skip":
-            frame_id, bee_id0, bee_id1 = self.interactions[self.current_interaction_idx][:3]
             now = datetime.datetime.now(tz=pytz.UTC).timestamp()
+
+            begin_idx, end_idx = self.frame_idx_slider.value
+            frame_id, bee_id0, bee_id1 = self.interactions[self.current_interaction_idx][:3]
+            event_id = misc.generate_64bit_id()
+
             with open(ground_truth_save_path, 'a') as file:
-                file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{action},{ground_truth_data_version}\n")
+                # Write only one frame if begin and end are not specified (assume middle frame).
+                if end_idx <= begin_idx and action != "nothing":
+                    file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{action},{ground_truth_data_version}, {event_id}, 0\n")
+                else:
+                    # Annotate whole event.
+                    for i in range(len(self.frames)):
+                        frame_id = self.frame_ids[i]
+                        frame_action = action
+                        if (end_idx > begin_idx) and (i < begin_idx or i > end_idx):
+                            if action == "nothing":
+                                # If the user specifically set the nothing-slider to a range, then the other
+                                # frames are thought to not contain nothing and so we skip them.
+                                continue
+                            # Otherwise, if the user gave a label for a range, then the rest is considered 'nothing'.
+                            frame_action = "nothing"
+                        file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{frame_action},{ground_truth_data_version},{event_id},{i}\n")
             info_text = f"{action}! \t (sample was {frame_id}, {bee_id0} and {bee_id1})"
         self.view_next_interaction(info_text)
 
