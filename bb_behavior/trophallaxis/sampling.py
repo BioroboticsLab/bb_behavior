@@ -6,9 +6,9 @@ from ..db import sample_frame_ids, get_interpolated_trajectory, DatabaseCursorCo
 from .features import is_valid_relative_rotation
 from ..utils.processing import ParallelPipeline
 
-def iter_frames(number_of_frames):
-    dt_from = datetime.datetime(year=2016, month=8, day=1, tzinfo=pytz.UTC)
-    dt_to = datetime.datetime(year=2016, month=9, day=1, tzinfo=pytz.UTC)
+def iter_frames(number_of_frames, dt_from=None, dt_to=None):
+    dt_from = dt_from or datetime.datetime(year=2016, month=8, day=1, tzinfo=pytz.UTC)
+    dt_to = dt_to or datetime.datetime(year=2016, month=9, day=1, tzinfo=pytz.UTC)
     samples = sample_frame_ids(number_of_frames, ts_from=dt_from.timestamp(), ts_to=dt_to.timestamp())
     
     trange = tqdm_notebook(samples)
@@ -63,7 +63,7 @@ def validate_interaction_duration(interaction,
         return (interaction, )
     return None
 
-def get_trophallaxis_samples(number_of_frames, max_distance, min_distance, minimum_relative_orientation):
+def get_trophallaxis_samples(number_of_frames, max_distance, min_distance, minimum_relative_orientation, dt_from=None, dt_to=None):
     def make_thread_context():
         return DatabaseCursorContext(application_name="Troph. Sample")
     
@@ -75,7 +75,13 @@ def get_trophallaxis_samples(number_of_frames, max_distance, min_distance, minim
     def _get_interactions_for_frame_id(*args, **kwargs):
         yield from get_interactions_for_frame_id(*args, max_distance=max_distance, min_distance=min_distance, **kwargs)
 
-    pipeline = ParallelPipeline([iter_frames, _get_interactions_for_frame_id,
+    data_source = iter_frames
+    if dt_from is not None and dt_to is not None:
+        def iter_frames_from_range(n_samples):
+            yield from iter_frames(n_samples, dt_from=dt_from, dt_to=dt_to)
+        data_source = iter_frames_from_range
+
+    pipeline = ParallelPipeline([data_source, _get_interactions_for_frame_id,
                                 lambda *args, **kwargs: filter_orientations(*args, minimum_relative_orientation=minimum_relative_orientation, **kwargs),
                                 lambda *args, **kwargs: validate_interaction_duration(*args,
                                         max_distance=max_distance, min_distance=min_distance,
