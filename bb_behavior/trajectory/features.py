@@ -6,7 +6,7 @@ from numba import jit
 import copy
 
 @jit
-def feature_normalize(trajectories):
+def feature_normalize(trajectories, downscale_by=1000.0):
     traj0 = trajectories[0] # x, y, orientation, mask; (1, 4, N)
     center_index = traj0.shape[2] // 2
     mid_x, mid_y = traj0[0, 0, center_index], traj0[0, 1, center_index]
@@ -16,8 +16,8 @@ def feature_normalize(trajectories):
     R = np.matrix([[c, -s], [s, c]])
 
     for traj in trajectories:
-        traj[0, 0, :] = (traj[0, 0, :] - mid_x) / 1000.0
-        traj[0, 1, :] = (traj[0, 1, :] - mid_y) / 1000.0
+        traj[0, 0, :] = (traj[0, 0, :] - mid_x) / downscale_by
+        traj[0, 1, :] = (traj[0, 1, :] - mid_y) / downscale_by
         traj[0, :2, :] = R.dot(traj[0, :2, :])
 
         traj[0, 2, :] = traj[0, 2, :] - mid_r
@@ -42,10 +42,11 @@ class FeatureTransform(object):
     _output = None
     _fun = None
 
-    def __init__(self, fun, input=None, output=None):
+    def __init__(self, fun, input=None, output=None, **kwargs):
         self._fun = fun
         self._input = input
         self._output = output or input
+        self._kwargs = kwargs
 
     def validate_features(self, input):
         if input != self._input:
@@ -53,13 +54,15 @@ class FeatureTransform(object):
         return self._output or input
 
     @staticmethod
-    def Normalizer():
-        return FeatureTransform(fun=feature_normalize, input=("x", "y", "r", "mask"))
+    def Normalizer(**kwargs):
+        return FeatureTransform(fun=feature_normalize, input=("x", "y", "r", "mask"), **kwargs)
     @staticmethod
     def Angle2Geometric():
         return FeatureTransform(fun=feature_angle_to_geometric, input=("x", "y", "r", "mask"), output=("x", "y", "r_sin", "r_cos", "mask"))
 
     def __call__(self, x):
+        if self._kwargs:
+            return self._fun(x, **self._kwargs)
         return self._fun(x)
 
 class DataReader(object):
