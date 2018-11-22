@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import psycopg2.extras
 
-def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dataframe=True):
+def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dataframe=True, include_video_name=False):
     """Takes a list of frame IDs and fetches additional data such as timestamps, cam_id, frame container ID, ...
 
     Arguments:
@@ -15,21 +15,23 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
             Whether the cursor already has the SQL statements prepared.
         return_dataframe: bool
             Whether to return a pandas.DataFrame (instead of a list of tuples).
+        include_video_name: bool
+            Whether to include the original filename of the video in the results.
     Returns:
         annotated_frames: pandas.DataFrame
-            DataFrame with the columns frame_id, timestamp, frame_idx, fc_id, cam_id.
+            DataFrame with the columns frame_id, timestamp, frame_idx, fc_id, cam_id, [video_name].
             Note that 'frame_idx' is the index of the respective video (fc_id).
 
             If 'return_dataframe' is true, returns a list with one tuple per row of the data frame.
     """
     if cursor is None:
         with base.get_database_connection("Frame metadata") as con:
-            return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False, return_dataframe=return_dataframe)
+            return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False, return_dataframe=return_dataframe, include_video_name=include_video_name)
     if not cursor_is_prepared:
         cursor.execute("PREPARE get_frame_metadata AS "
            "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
-        cursor.execute("PREPARE get_frame_id_for_container AS "
-          "SELECT CAST(SUBSTR(video_name, 5, 1) AS INT) FROM plotter_framecontainer "
+        cursor.execute("PREPARE get_frame_container_info AS "
+          "SELECT video_name FROM plotter_framecontainer "
           "WHERE id = $1 LIMIT 1")
 
     # Fetch the widely available metadata.
@@ -44,18 +46,25 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
     
     # And add the frame_ids.
     for fc_id in required_frame_containers.keys():
-        cursor.execute("EXECUTE get_frame_id_for_container (%s)", (fc_id,))
-        cam_id = cursor.fetchone()[0]
-        required_frame_containers[fc_id] = cam_id
+        cursor.execute("EXECUTE get_frame_container_info (%s)", (fc_id,))
+        video_name = cursor.fetchone()[0]
+        cam_id = int(video_name[4])
+        required_frame_containers[fc_id] = (cam_id, video_name)
     
     annotated_frames = []
     for idx, frame_id in enumerate(frames):
         meta = list(frame_id_dict[frame_id])
         #meta[0] = int(meta[0])
-        meta.append(required_frame_containers[meta[-1]])
+        if include_video_name:
+            meta.extend(required_frame_containers[meta[-1]])
+        else:
+            meta.append(required_frame_containers[meta[-1]][0])
         annotated_frames.append(meta)
     
     if return_dataframe:
-        annotated_frames = pd.DataFrame(annotated_frames, columns=("frame_id", "timestamp", "frame_idx", "fc_id", "cam_id"))
+        columns = ("frame_id", "timestamp", "frame_idx", "fc_id", "cam_id")
+        if include_video_name:
+            columns = columns + ("video_name",)
+        annotated_frames = pd.DataFrame(annotated_frames, columns=columns)
 
     return annotated_frames
