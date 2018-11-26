@@ -46,6 +46,15 @@ class DatabaseCursorContext(object):
         self._cursor.execute("PREPARE get_bee_detections_hive_coords AS "
            "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM bb_detections_2016_stitched "
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
+
+        # For metadata.get_frame_metadata
+        self._cursor.execute("PREPARE get_frame_metadata AS "
+           "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
+        # For metadata.get_frame_metadata
+        self._cursor.execute("PREPARE get_frame_container_info AS "
+          "SELECT video_name FROM plotter_framecontainer "
+          "WHERE id = $1 LIMIT 1")
+          
         return self._cursor
 
     def __exit__(self, type, value, traceback):
