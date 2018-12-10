@@ -54,7 +54,7 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, frame_container_id=None, cur
         Arguments:
             cam_id: database camera id (0-4)
             ts_from: Begin (included); unix timestamp with milliseconds accuracy
-            ts_to: End (included); unix timestamp with milliseconds accuracy
+            ts_to: End (excluded); unix timestamp with milliseconds accuracy
             cursor: optional database cursor to work on
             frame_container_id: required when cam_id==None; database frame_container_id to retrieve the camera ID from
         
@@ -65,7 +65,7 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, frame_container_id=None, cur
         with base.get_database_connection(application_name="get_frames") as db:
             return get_frames(cam_id, ts_from, ts_to, cursor=db.cursor(), frame_container_id=frame_container_id)
     if not cursor_is_prepared:
-        cursor.execute("SELECT timestamp, frame_id, fc_id FROM plotter_frame WHERE timestamp >= %s AND timestamp <= %s", (ts_from, ts_to))
+        cursor.execute("SELECT timestamp, frame_id, fc_id FROM plotter_frame WHERE timestamp >= %s AND timestamp < %s", (ts_from, ts_to))
     else:
         cursor.execute("EXECUTE get_frames_all_frame_ids (%s, %s)",  (ts_from, ts_to))
     results = list(cursor)
