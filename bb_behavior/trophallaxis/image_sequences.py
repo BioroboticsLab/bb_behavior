@@ -12,10 +12,11 @@ import numpy as np
 import pandas as pd
 import prefetch_generator
 import zipfile
+import itertools
 from tqdm import tqdm_notebook
 
 
-def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_before_after=5):
+def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_before_after=5, verbose=False):
     """Takes a list of frames and, for each frame, fetches +/-n_frames_before_after neighbour frames and retrieves everything
     as images. To speed up the process, the video_manager is used to cache image files.
     Ideally, the frames should be sorted by cam ID and timestamp.
@@ -27,6 +28,8 @@ def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_befor
             List of frame IDs and frame container IDs that each constitute the middle frame of a sequence.
         n_frames_before_after: int
             How many frames to fetch around the center frames. Yields 1 + 2 * n_frames_before_after frames.
+        verbose: bool
+            Whether to print additional information.
     Yields:
         images, neighbour_frames: list(np.array), list(tuple)
             For each input frame ID, a pair of the images and neighbour information
@@ -34,15 +37,31 @@ def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_befor
     """
     
     with DatabaseCursorContext("Troph. whole frame retrieval") as prepared_cursor:
-        for idx, (frame_id, fc_id) in enumerate(frame_ids_fcs):
+        # Cache all frames that are bound to be queried.
+        all_neighbour_frames = [None] * len(frame_ids_fcs)
+        def get_neighbour_frames_for_index(index):
+            if all_neighbour_frames[index] is None:
+                frame_id = frame_ids_fcs[index][0]
+                all_neighbour_frames[index] = get_neighbour_frames(frame_id, n_frames=n_frames_before_after) 
+            return all_neighbour_frames[index]
+            
+        for idx, (_, fc_id) in enumerate(frame_ids_fcs):
             # A yet unseen frame container? Note that they are sorted.
             if idx == 0 or (frame_ids_fcs[idx - 1][1] != fc_id):
                 video_manager.clear_video_cache(retain_last_n_requests=4)
-                new_frame_ids = [f[0] for f in frame_ids_fcs[idx:] if f[1] == fc_id]
-                video_manager.cache_frames(new_frame_ids, cursor=prepared_cursor)
-            neighbour_frames = get_neighbour_frames(frame_id, n_frames=n_frames_before_after)        
+                new_frame_ids_neighbours = [(frame_ids_fcs[i][0], get_neighbour_frames_for_index(i)) \
+                                            for i in range(idx, len(frame_ids_fcs)) \
+                                            if frame_ids_fcs[i][1] == fc_id]
+                new_frame_ids = set()
+                for (_, neighbours) in new_frame_ids_neighbours:
+                    new_frame_ids |= {n[1] for n in neighbours}
+                if verbose:
+                    print("New frame container (id={})! Caching {} frames.".format(fc_id, len(new_frame_ids)))
+                video_manager.cache_frames(new_frame_ids, cursor=prepared_cursor, verbose=verbose)
+            neighbour_frames = get_neighbour_frames_for_index(idx)
+            
             frame_ids = [f[1] for f in neighbour_frames]
-            yield video_manager.get_frames(frame_ids, cursor=prepared_cursor), neighbour_frames
+            yield video_manager.get_frames(frame_ids, cursor=prepared_cursor, verbose=verbose), neighbour_frames
 
 @numba.njit
 def get_affine_transform(xy0, xy1):
@@ -79,7 +98,7 @@ def rotate_crops(traj0, traj1, images):
     for xy0, xy1, im in zip(traj0, traj1, images):
         R, offset = get_affine_transform(xy0, xy1)
         #output = np.zeros(shape=(64, 64), dtype=np.float32)
-        im2 = scipy.ndimage.affine_transform(im, R, offset=offset, output_shape=(128, 128), mode='mirror')
+        im2 = scipy.ndimage.affine_transform(im, R, offset=offset, order=1, output_shape=(128, 128), mode='mirror')
         results.append(im2)
     return results
 
@@ -170,23 +189,15 @@ def get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=None,
                     traj0=list(map(tuple, traj0.astype(float))), traj1=list(map(tuple, traj1.astype(float))),
                     mask0=list(mask0.astype(float)), mask1=list(mask1.astype(float))
                 ), np.stack(cropped_images)))
-
-            if verbose:
-                import matplotlib.pyplot as plt
-                fig, axes = plt.subplots(1, len(images), figsize=(20, 5))
-                for idx, (xy0, xy1, im) in enumerate(zip(local_traj0, local_traj1, cropped_images)):
-                    ax = axes[idx]
-                    ax.imshow(im, cmap="gray")
-                    ax.set_axis_off()
-                    ax.set_title("{} {:2.2f}".format(int(label), xy0[2] / np.pi * 180.0))
-                plt.show()
         except Exception as e:
             print("Error at {}_{}_{}_{}".format(event_id, frame_id, bee_id0, bee_id1))
             print(str(e))
         
     return all_results
 
-def generate_image_sequence_data(dataframe, output_file, video_root, video_cache_path, n_sequences=None):
+def generate_image_sequence_data(dataframe, output_file, video_root, video_cache_path,
+                                    n_sequences=None, append=True,
+                                    verbose=False, dry=False, skip_first_n_frames=0):
     """Generates and stores image sequences for all rows in a pandas.DataFrame.
 
     Arguments:
@@ -200,6 +211,14 @@ def generate_image_sequence_data(dataframe, output_file, video_root, video_cache
             Path where frame images can be cached (recommendation: use a ramdisk).
         n_sequences: int
             Optional. Whether to stop after having generated at least n_sequence image sequences.
+        append: bool
+            Whether to append to the output file instead of clearing it first.
+        verbose: bool
+            Whether to print additional output.
+        dry: bool
+            If set, no data is actually stored to the file.
+        skip_first_n_frames: int
+            Skips the first skip_first_n_frames frame IDs (after sorting).
     """
     video_manager = BeesbookVideoManager(video_root=video_root,
                                         cache_path=video_cache_path)
@@ -207,19 +226,20 @@ def generate_image_sequence_data(dataframe, output_file, video_root, video_cache
     dataframe.sort_values(["cam_id", "timestamp"], inplace=True)
     # Get a list containing both the unique frame IDs and the respective frame containers to make caching faster.
     unique_frames_fcs = list(dataframe[["frame_id", "fc_id"]].drop_duplicates().itertuples(index=False, name=None))
-    image_source = get_whole_frame_image_sequences(video_manager, unique_frames_fcs)
+    image_source = get_whole_frame_image_sequences(video_manager, unique_frames_fcs[skip_first_n_frames:], verbose=verbose)
     image_source = prefetch_generator.BackgroundGenerator(image_source, max_prefetch=1)
 
-    iterable = zip(dataframe.groupby("frame_id", sort=False), image_source)
+    iterable = zip(itertools.islice(dataframe.groupby("frame_id", sort=False), skip_first_n_frames, None), image_source)
     iterable = tqdm_notebook(iterable, total=len(unique_frames_fcs))
     
     generated_sequence_count = 0
     with DatabaseCursorContext("Troph. image retrieval") as cursor:
 
-        with zipfile.ZipFile(output_file, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        mode = "a" if append else "w"
+        with zipfile.ZipFile(output_file, mode=mode, compression=zipfile.ZIP_DEFLATED) as zf:
 
-            for request_idx, ((frame_id, df), (images, neighbour_frames)) in enumerate(iterable):
-                results = get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=cursor, verbose=False)
+            for (frame_id, df), (images, neighbour_frames) in iterable:
+                results = get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=cursor, verbose=verbose)
 
                 for (metadata, images) in results:
                     
@@ -228,10 +248,22 @@ def generate_image_sequence_data(dataframe, output_file, video_root, video_cache
                     bee_id0 = metadata["bee_id0"]
                     bee_id1 = metadata["bee_id1"]
                     filename = "{}_{}_{}_{}".format(event_id, frame_id, bee_id0, bee_id1)
-                    zf.writestr(filename + ".json", json.dumps(metadata))
+                    if not dry:
+                        zf.writestr(filename + ".json", json.dumps(metadata))
 
-                    with zf.open(filename + ".npy", mode="w") as image_file:
-                        np.save(image_file, images)
+                        with zf.open(filename + ".npy", mode="w") as image_file:
+                            np.save(image_file, images)
+
+                    if verbose:
+                        import matplotlib.pyplot as plt
+                        fig, axes = plt.subplots(1, len(images), figsize=(20, 5))
+                        for idx, (xy0, xy1, im) in enumerate(zip(metadata["local_traj0"], metadata["local_traj1"], images)):
+                            ax = axes[idx]
+                            ax.imshow(im, cmap="gray")
+                            ax.set_axis_off()
+                            label = metadata["label"]
+                            ax.set_title("{} {:2.2f}".format(int(label), xy0[2] / np.pi * 180.0))
+                        plt.show()
 
                     generated_sequence_count += 1
 
