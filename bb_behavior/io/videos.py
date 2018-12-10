@@ -115,6 +115,7 @@ class BeesbookVideoManager():
                 These will determine the final filenames.
 
         """
+        assert (n_frames == len(frame_ids))
         with tempfile.TemporaryDirectory(dir=self.cache_path, prefix="vidtmp_") as dirpath:
             extract_frames_from_video(self.get_raw_video_path(video_name), target_directory=dirpath,
                 start_frame=start_frame, n_frames=n_frames,
@@ -172,36 +173,48 @@ class BeesbookVideoManager():
         for video_name in unique_videos:
             video_data = [(frame_indices[i], frame_ids[i]) for i in range(len(video_names)) if video_names[i] == video_name]
             video_data = sorted(video_data)
-            video_indices, video_frame_ids = zip(*video_data)
-            start_idx, end_idx = video_indices[0], video_indices[-1]
-            
-            self.extract_frames(video_name, start_idx, end_idx - start_idx + 1, video_frame_ids)
+            # The frame_ids must not necessarily be in sequence.
+            # If we need the first two frames and the last two, don't extract the full video.
+            cuts = [i for i in range(1, len(video_data) + 1) if (i == len(video_data)) or (video_data[i-1][0] + 1 != video_data[i][0])]
+            last_cut = 0
+            for cut in cuts:
+                video_indices, video_frame_ids = zip(*video_data[last_cut:cut])
+                start_idx, end_idx = video_indices[0], video_indices[-1]
+                self.extract_frames(video_name, start_idx, end_idx - start_idx + 1, video_frame_ids)
+                last_cut = cut
 
-    def cache_frames(self, frame_ids, cursor=None):
+    def cache_frames(self, frame_ids, cursor=None, verbose=False):
         """Makes sure that all frames in frame_ids are cached.
         Unlike get_frames it does not load and return the images.
 
         Arguments:
             frame_ids: list(int)
+            verbose: bool
+                Whether to print additional output.
         """
+        all_n = len(frame_ids)
         frame_ids = [f_id for f_id in frame_ids if not self.is_frame_cached(f_id)]
         if frame_ids:
+            if verbose:
+                print("Extracting {} frames ({} were requested).".format(len(frame_ids), all_n))
             metadata = get_frame_metadata(frame_ids, return_dataframe=False, include_video_name=True,
                                         cursor=cursor, cursor_is_prepared=cursor is not None)
             frame_indices = [meta[2] for meta in metadata]
             video_names = [meta[5] for meta in metadata]
             self.extract_frames_from_metadata(frame_ids, frame_indices, video_names)
 
-    def get_frames(self, frame_ids, cursor=None):
+    def get_frames(self, frame_ids, cursor=None, verbose=False):
         """Returns a list of numpy arrays that correspond to whole frame images for the given frame IDs.
 
         Arguments:
             frame_ids: list(int)
+            verbose: bool
+                Whether to print additional output.
         Returns:
             images: list(np.array)
         """
         all_frame_ids = copy.copy(frame_ids)
-        self.cache_frames(all_frame_ids)
+        self.cache_frames(all_frame_ids, verbose=verbose)
         self.last_requests.append(all_frame_ids)
 
         images = self.loader_thread_pool.map(self.get_frame, all_frame_ids)
