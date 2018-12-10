@@ -68,3 +68,24 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
         annotated_frames = pd.DataFrame(annotated_frames, columns=columns)
 
     return annotated_frames
+
+def get_alive_bees(dt_from, dt_to, cursor=None):
+    """Returns all bees for a time window that have been tagged and did not die yet.
+
+    Arguments:
+        dt_from: datetime.datetime
+            Begin of the period (inclusive).
+        dt_to: datetime.datetime
+            End of the period (exclusive).
+        cursor: psycopg2.cursor
+            Optional. Connected database cursor.
+    Returns:
+        bee_ids: set(int)
+            All bee IDs (ferwar format) that are alive between the given timestamps.
+    """
+    if cursor is None:
+        with base.get_database_connection("Frame metadata") as con:
+            return get_alive_bees(dt_from, dt_to, cursor=con.cursor())
+    cursor.execute("SELECT bee_id from alive_bees_2016 WHERE timestamp >= %s and timestamp < %s ", (dt_from, dt_to))
+    bee_ids = {result[0] for result in cursor.fetchall()}
+    return bee_ids
