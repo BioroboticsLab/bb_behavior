@@ -1,6 +1,7 @@
 import multiprocessing, threading
 import inspect
 import queue
+import math
 import numpy as np
 import numba
 
@@ -170,22 +171,55 @@ class FunctionCacher():
         """
         return self.get()
 
-def find_close_points(XY, max_distance, min_distance):
+def find_close_points(XY, max_distance, min_distance, distance_func=None, return_distances=False):
     """Takes a numpy array of positions and finds close indices.
     
     Arguments:
         XY: np.array of shape (N, 2) containing one x, y coordinate pair per row.
         max_distance: Only pairs closer than this will be returned.
         min_distance: Only pairs farther away than this will be returned.
-        
+        distance_func: callable
+            Custom distance function taking two vectors as arguments.
+        return_distances: bool
+            Whether to return the distance as a second return value.
     Returns:
         numpy.array of shape (M, 2) containing M close pairs as tuples (i, j) where i and j are indices 0 <= i, j < N and i != j.
+        If /return_distances/ is true, a second value with the calculated distances is returned.
     """
-    import scipy.spatial
-    tree = scipy.spatial.cKDTree(XY)
-    close_points = tree.query_pairs(max_distance, output_type="ndarray")
-    coords1 = XY[close_points[:, 0], :]
-    coords2 = XY[close_points[:, 1], :]
-    distance = np.linalg.norm(coords1 - coords2, axis=1)
-    assert np.all(distance <= max_distance)
-    return close_points[distance >= min_distance, :]
+    pairs = None
+    distances = None
+    if not distance_func:
+        import scipy.spatial
+        tree = scipy.spatial.cKDTree(XY)
+        close_points = tree.query_pairs(max_distance, output_type="ndarray")
+        coords1 = XY[close_points[:, 0], :]
+        coords2 = XY[close_points[:, 1], :]
+        distance = np.linalg.norm(coords1 - coords2, axis=1)
+        assert np.all(distance <= max_distance)
+        pairs = close_points[distance >= min_distance, :]
+        distances = distance[distance >= min_distance]
+    else:
+        import scipy.spatial.distance
+        # Different approach when using a custom distance function.
+        distances = scipy.spatial.distance.pdist(XY, metric=distance_func)
+        valid = np.ones(shape=(distances.shape[0],), dtype=np.bool)
+        if max_distance is not None:
+            valid = valid & (distances <= max_distance)
+        if min_distance is not None:
+            valid = valid & (distances >= min_distance)
+        # Get the pair indices back from the condensed form.
+        # See https://stackoverflow.com/questions/5323818/condensed-matrix-function-to-find-pairs/14839010#14839010
+        d = (1 + math.sqrt(1 + 8*len(distances)))/2 
+        def row_col_from_condensed_index(d, i):
+            b = 1 - 2 * d 
+            x = np.floor((-b - np.sqrt(b**2 - 8 * i))/2)
+            y = i + x * (b + x + 2)/2 + 1
+            return np.stack((x, y), axis=1).astype(np.int)
+        valid_squashed_indices = np.where(valid)[0]
+        pairs = row_col_from_condensed_index(d, valid_squashed_indices)
+        distances = distances[valid]
+
+    if return_distances:
+        pairs = (pairs, distances)
+    return pairs
+

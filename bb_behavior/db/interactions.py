@@ -1,7 +1,8 @@
 from . import base
 from .. import utils
 
-def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, confidence_threshold=0.25, cursor=None):
+def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, confidence_threshold=0.25, cursor=None,
+                                distance_func=None, features=["x_pos_hive", "y_pos_hive"]):
     """Takes a frame id and finds all the possible interactions consisting of close bees.
     
     Arguments:
@@ -10,7 +11,11 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
         min_distance: Minimum hive distance (mm) of interaction partners.
         confidence_threshold: Minimum confidence of detections. Others are ignored.
         cursor: Optional. Database cursor connected to the DB.
-        
+        distance_func: callable
+            Custom callable to use as a distance metric.
+            Will be passed to scipy.spatial.distance.pdist.
+        features: list
+            Defines the fields that are queried from the DB and passed to the distance function.
     Returns:
         List containing interaction partners as tuples of
         (frame_id, bee_id0, bee_id1, detection_idx0, detection_idx1,
@@ -25,21 +30,23 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
                                               max_distance=max_distance,
                                               min_distance=min_distance,
                                               confidence_threshold=confidence_threshold,
+                                              distance_func=distance_func,
                                               cursor=cursor)
-        
+    
+    fields = set(("x_pos_hive", "y_pos_hive", "orientation_hive")) | set(features)
     query = """
-    SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
+    SELECT {}, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
         WHERE frame_id = %s
         AND bee_id_confidence >= %s
-    """
+    """.format(",".join(fields))
     
     df = pandas.read_sql_query(query, cursor.connection, coerce_float=False,
                                params=(int(frame_id), confidence_threshold))
     if df.shape[0] == 0:
         return []
     
-    close_pairs = utils.find_close_points(df[["x_pos_hive", "y_pos_hive"]].values,
-                                   max_distance, min_distance)
+    close_pairs = utils.find_close_points(df[features].values,
+                                   max_distance, min_distance, distance_func=distance_func)
     
     results = []
     for (i, j) in close_pairs:
