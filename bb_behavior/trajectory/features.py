@@ -35,7 +35,14 @@ def trajectories_to_features(trajectories, feature_transformer):
         ft(trajectories)
     if len(trajectories[0].shape) < 2:
         raise ValueError("Feature transformer must return an array with at least two dimensions with the first being of size 1 and the second being the features.")
-    return np.concatenate(trajectories, axis=1)
+    trajectories = np.concatenate(trajectories, axis=1)
+    features = feature_transformer[-1].get_output()
+    if trajectories.shape[1] < len(features):
+        raise ValueError("Feature transformers declared {} output features ({}) but produced {}.".format(len(features), features, trajectories.shape[1]))
+    elif trajectories.shape[1] > len(features):
+        trajectories = trajectories[:, :len(features), :]
+
+    return trajectories
 
 class FeatureTransform(object):
     _input = None
@@ -59,7 +66,8 @@ class FeatureTransform(object):
     @staticmethod
     def Angle2Geometric():
         return FeatureTransform(fun=feature_angle_to_geometric, input=("x", "y", "r", "mask"), output=("x", "y", "r_sin", "r_cos", "mask"))
-
+    def get_output(self):
+        return self._output
     def __call__(self, x):
         if self._kwargs:
             return self._fun(x, **self._kwargs)
