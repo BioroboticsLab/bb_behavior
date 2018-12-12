@@ -54,9 +54,79 @@ def minimize_objective(fun, arg_space, max_evals=100, *args, **kwargs):
     
     return best_set, trials_df
 
-def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, roc_auc=True, figsize=None):
-    if roc_auc and not has_proba:
-        raise ValueError("ROC AUC curve needs probability scores.")
+def plot_roc_curve(Y_true, Y_predicted, ax=None):
+
+    fpr, tpr, roc_thresholds = sklearn.metrics.roc_curve(Y_true, Y_predicted)
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
+    lw = 2
+    ax.plot(fpr, tpr, color='darkorange', lw=lw, label='ROC curve')
+    ax.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel('False Positive Rate')
+    ax.set_ylabel('True Positive Rate')
+    ax.set_title('ROC curve')
+    ax.set_aspect("equal")
+    
+    if fig:
+        plt.show()
+
+    return fpr, tpr, roc_thresholds
+
+def plot_miss_rate_curve(Y_true, Y_predicted, tpr=None, thresholds=None, ax=None):
+    if tpr is None:
+        _, tpr, thresholds = sklearn.metrics.roc_curve(Y_true, Y_predicted)
+    
+    percentage_thresholds = np.linspace(0.0, 1.0, num=50)
+    percentages = [(np.sum(Y_predicted >= t) / Y_predicted.shape[0]) for t in percentage_thresholds]
+
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
+    ax.set_title("Fraction of data assumed to be\ncorrect at a certain cutoff")
+    ax.plot(percentage_thresholds, percentages, "k-", label="Classified w/\npositive label")
+    ax.plot(thresholds, 1.0 - tpr, "g:", label="Miss rate\n(FNR; 1.0 - TPR)")
+    ax.set_ylabel("Fraction of data")
+    ax.set_xlim(0,1)
+    ax.set_ylim(0,1)
+    ax.legend()
+    ax.set_xlabel("Threshold")
+    ax.set_aspect("equal")
+    if fig is not None:
+        plt.show()
+
+    return tpr, thresholds
+
+def plot_precision_recall_curve(Y_true, Y_predicted, ax=None):
+
+    precision, recall, thresholds = sklearn.metrics.precision_recall_curve(Y_true, Y_predicted)
+    precision = precision[::-1]
+    recall = recall[::-1]
+    thresholds = thresholds[::-1]
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5))
+
+    lw = 2
+    ax.plot(recall, precision, color='darkorange', lw=lw, label='Precision/Recall curve')
+    ax.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel('Recall')
+    ax.set_ylabel('Precision')
+    ax.set_title('Precision/Recall curve')
+    ax.set_aspect("equal")
+    if fig is not None:
+        plt.show()
+
+    return precision, recall, thresholds
+
+def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, roc_auc=True, precision_recall=True, miss_rate=True, figsize=None):
+    n_threshold_curves = int(roc_auc) + int(precision_recall) + int(miss_rate)
+    if n_threshold_curves > 0 and not has_proba:
+        raise ValueError("Threshold curves need probability scores.")
 
     Y_probas = Y_predicted
     if has_proba:
@@ -66,19 +136,13 @@ def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, r
     
     print(sklearn.metrics.classification_report(Y_ground_truth, Y_classes))
 
-    if roc_auc:
-        fpr, tpr, _ = sklearn.metrics.roc_curve(Y_ground_truth, Y_probas[:, 1])
-        plt.figure(figsize=figsize)
-
-        lw = 2
-        plt.plot(fpr, tpr, color='darkorange', lw=lw, label='ROC curve')
-        plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('ROC curve')
-        plt.legend(loc="lower right")
-        plt.axis("equal")
+    if n_threshold_curves > 0:
+        fig, axes = plt.subplots(1, n_threshold_curves, figsize=(6 * n_threshold_curves, 6))
+        ax_idx = 0
+        for (check, fun) in zip((roc_auc, precision_recall, miss_rate), (plot_roc_curve, plot_precision_recall_curve, plot_miss_rate_curve)):
+            if check:
+                fun(Y_ground_truth, Y_probas[:, 1], ax=axes[ax_idx])
+                ax_idx += 1
+        fig.tight_layout()
         plt.show()
 
