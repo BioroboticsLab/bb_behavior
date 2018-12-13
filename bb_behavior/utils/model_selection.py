@@ -75,19 +75,23 @@ def plot_roc_curve(Y_true, Y_predicted, ax=None):
 
     return fpr, tpr, roc_thresholds
 
-def plot_miss_rate_curve(Y_true, Y_predicted, tpr=None, thresholds=None, ax=None):
+def plot_thresholds_curve(Y_true, Y_predicted, tpr=None, thresholds=None, ax=None):
     if tpr is None:
         _, tpr, thresholds = sklearn.metrics.roc_curve(Y_true, Y_predicted)
     
-    percentage_thresholds = np.linspace(0.0, 1.0, num=50)
+    percentage_thresholds = np.linspace(0.0, 1.0, num=thresholds.shape[0])
     percentages = [(np.sum(Y_predicted >= t) / Y_predicted.shape[0]) for t in percentage_thresholds]
 
+    precision = [sklearn.metrics.precision_score(Y_true, Y_predicted >= t) for t in percentage_thresholds]
+    
     fig = None
     if ax is None:
         fig, ax = plt.subplots(figsize=(5, 5))
-    ax.set_title("Fraction of data assumed to be\ncorrect at a certain cutoff")
+    ax.set_title("Influence of threshold on results")
     ax.plot(percentage_thresholds, percentages, "k-", label="Classified w/\npositive label")
-    ax.plot(thresholds, 1.0 - tpr, "g:", label="Miss rate\n(FNR; 1.0 - TPR)")
+    ax.plot(thresholds, precision, "r", label="Precision (PPV)")
+    ax.plot(thresholds, tpr, "g--", label="Hit rate (TPR; Recall)")
+    ax.plot(thresholds, 1.0 - tpr, "b:", label="Miss rate (FNR; 1.0 - TPR)")
     ax.set_ylabel("Fraction of data")
     ax.set_xlim(0,1)
     ax.set_ylim(0,1)
@@ -111,7 +115,6 @@ def plot_precision_recall_curve(Y_true, Y_predicted, ax=None):
 
     lw = 2
     ax.plot(recall, precision, color='darkorange', lw=lw, label='Precision/Recall curve')
-    ax.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
     ax.set_xlabel('Recall')
@@ -123,25 +126,29 @@ def plot_precision_recall_curve(Y_true, Y_predicted, ax=None):
 
     return precision, recall, thresholds
 
-def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, roc_auc=True, precision_recall=True, miss_rate=True, figsize=None):
-    n_threshold_curves = int(roc_auc) + int(precision_recall) + int(miss_rate)
+def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, roc_auc=True, precision_recall=True, plot_thresholds=True, figsize=None):
+    n_threshold_curves = int(roc_auc) + int(precision_recall) + int(plot_thresholds)
     if n_threshold_curves > 0 and not has_proba:
         raise ValueError("Threshold curves need probability scores.")
 
     Y_probas = Y_predicted
     if has_proba:
-        Y_classes = np.argmax(Y_probas, axis=1)
+        if len(Y_probas.shape) > 1:
+            Y_classes = np.argmax(Y_probas, axis=1)
+            Y_probas = Y_probas[:, 1]
+        else:
+            Y_classes = Y_probas > 0.5
     else:
         Y_classes = Y_probas
     
     print(sklearn.metrics.classification_report(Y_ground_truth, Y_classes))
 
     if n_threshold_curves > 0:
-        fig, axes = plt.subplots(1, n_threshold_curves, figsize=(6 * n_threshold_curves, 6))
+        fig, axes = plt.subplots(1, n_threshold_curves, figsize=(7 * n_threshold_curves, 7))
         ax_idx = 0
-        for (check, fun) in zip((roc_auc, precision_recall, miss_rate), (plot_roc_curve, plot_precision_recall_curve, plot_miss_rate_curve)):
+        for (check, fun) in zip((roc_auc, precision_recall, plot_thresholds), (plot_roc_curve, plot_precision_recall_curve, plot_thresholds_curve)):
             if check:
-                fun(Y_ground_truth, Y_probas[:, 1], ax=axes[ax_idx])
+                fun(Y_ground_truth, Y_probas, ax=axes[ax_idx])
                 ax_idx += 1
         fig.tight_layout()
         plt.show()
