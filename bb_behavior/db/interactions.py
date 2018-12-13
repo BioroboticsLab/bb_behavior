@@ -2,7 +2,7 @@ from . import base
 from .. import utils
 
 def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, confidence_threshold=0.25, cursor=None,
-                                distance_func=None, features=["x_pos_hive", "y_pos_hive"]):
+                                distance_func=None, features=["x_pos_hive", "y_pos_hive"], cursor_is_prepared=False):
     """Takes a frame id and finds all the possible interactions consisting of close bees.
     
     Arguments:
@@ -16,6 +16,9 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
             Will be passed to scipy.spatial.distance.pdist.
         features: list
             Defines the fields that are queried from the DB and passed to the distance function.
+        cursor_is_prepared: bool
+            Whether the user has prepared the cursor with a query called 'find_interaction_candidates'
+            that yields at least x_pos_hive, y_pos_hive, orientation_hive and the columns required by 'features'.
     Returns:
         List containing interaction partners as tuples of
         (frame_id, bee_id0, bee_id1, detection_idx0, detection_idx1,
@@ -31,15 +34,19 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
                                               min_distance=min_distance,
                                               confidence_threshold=confidence_threshold,
                                               distance_func=distance_func,
-                                              cursor=cursor)
+                                              cursor=cursor, cursor_is_prepared=False)
     
     fields = set(("x_pos_hive", "y_pos_hive", "orientation_hive")) | set(features)
-    query = """
-    SELECT {}, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
-        WHERE frame_id = %s
-        AND bee_id_confidence >= %s
-    """.format(",".join(fields))
-    
+    if not cursor_is_prepared:
+        query = """
+        SELECT {}, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
+            WHERE frame_id = %s
+            AND bee_id_confidence >= %s
+        """.format(",".join(fields))
+    else:
+        # The user has prepared the cursor with the required fields.
+        query = "EXECUTE find_interaction_candidates (%s, %s)"
+
     df = pandas.read_sql_query(query, cursor.connection, coerce_float=False,
                                params=(int(frame_id), confidence_threshold))
     if df.shape[0] == 0:
