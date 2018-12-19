@@ -147,11 +147,20 @@ def process_frame_with_prefilter(frame_info):
     results = get_data_for_frame_id_high_recall(*frame_info)
     return results
             
-def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None):
-    from tqdm import tqdm_notebook
+def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm"):
+    
+    if progress is None:
+        progress = lambda x=None, **kwargs: x
+    else:
+        import tqdm
+        if progress == "tqdm":
+            progress = tqdm.tqdm
+        elif progress == "tqdm_notebook":
+            progress = tqdm.tqdm_notebook
+
     if target_dir is None:
         target_dir = "/mnt/storage/david/cache/beesbook/trophallaxis/"
-    trange = tqdm_notebook(total=(dt_to-dt_from).days, desc="Days")
+    trange = progress(total=(dt_to-dt_from).days, desc="Days")
     
     current_day_start = dt_from
     while True:
@@ -159,14 +168,15 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None):
             break
         current_day_end = current_day_start + datetime.timedelta(days=1)
 
-        for cam_id in tqdm_notebook(range(4), desc="Cam ID", leave=False):
+        for cam_id in progress(range(4), desc="Cam ID", leave=False):
 
             def dt_to_string(cam, dt, dt_to):
                 return target_dir + "/prefilter.{}_{}_{}.zip".format(
                     cam, str(dt), str(dt_to))
             output_filename = dt_to_string(cam_id, current_day_start, current_day_end)
             if os.path.isfile(output_filename):
-                trange.write("Skipping..")
+                if trange is not None:
+                    trange.write("Skipping..")
                 continue
 
             def iter_frames_to_filter(cam_id, from_, to_):
@@ -177,10 +187,10 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None):
                         yield (timestamp, frame_id, cam_id)
 
             def data_source():
-                yield from tqdm_notebook(iter_frames_to_filter(cam_id, current_day_start, current_day_end), leave=False, desc="Frames")
+                yield from progress(iter_frames_to_filter(cam_id, current_day_start, current_day_end), leave=False, desc="Frames")
 
             all_interaction_results = dict()
-            result_progress = tqdm_notebook(leave=False, desc="Results")
+            result_progress = progress(leave=False, desc="Results")
             def save_data(results):
                 nonlocal all_interaction_results
                 timestamp, frame_id, cam_id, core_data = results
@@ -205,5 +215,6 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None):
 
             result_progress.close()
 
-        trange.update()
+        if trange is not None:
+            trange.update()
         current_day_start = current_day_end
