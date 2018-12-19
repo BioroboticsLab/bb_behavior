@@ -1,8 +1,13 @@
+from concurrent.futures import ProcessPoolExecutor
 import datetime
+import msgpack
 import numba
 import numpy as np
+import os.path
 import pandas as pd
-from ..db import find_interactions_in_frame, get_frame_metadata
+import zipfile
+
+from ..db import find_interactions_in_frame, get_frame_metadata, get_frames
 
 @numba.njit
 def calculate_head_distance(xy0, xy1):
@@ -137,3 +142,68 @@ def load_all_processed_data(paths):
     with ThreadPoolExecutor(max_workers=4) as executor:
         data = executor.map(load_processed_data, paths)
     return pd.concat([d for d in data if d is not None], axis=0, ignore_index=True)
+
+def process_frame_with_prefilter(frame_info):
+    results = get_data_for_frame_id_high_recall(*frame_info)
+    return results
+            
+def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None):
+    from tqdm import tqdm_notebook
+    if target_dir is None:
+        target_dir = "/mnt/storage/david/cache/beesbook/trophallaxis/"
+    trange = tqdm_notebook(total=(dt_to-dt_from).days, desc="Days")
+    
+    current_day_start = dt_from
+    while True:
+        if current_day_start > dt_to:
+            break
+        current_day_end = current_day_start + datetime.timedelta(days=1)
+
+        for cam_id in tqdm_notebook(range(4), desc="Cam ID", leave=False):
+
+            def dt_to_string(cam, dt, dt_to):
+                return target_dir + "/prefilter.{}_{}_{}.zip".format(
+                    cam, str(dt), str(dt_to))
+            output_filename = dt_to_string(cam_id, current_day_start, current_day_end)
+            if os.path.isfile(output_filename):
+                trange.write("Skipping..")
+                continue
+
+            def iter_frames_to_filter(cam_id, from_, to_):
+                all_frames = list(get_frames(cam_id, from_.timestamp(), to_.timestamp()))
+
+                for idx, (timestamp, frame_id, cam_id) in enumerate(all_frames):
+                    if idx % 3 == 0:
+                        yield (timestamp, frame_id, cam_id)
+
+            def data_source():
+                yield from tqdm_notebook(iter_frames_to_filter(cam_id, current_day_start, current_day_end), leave=False, desc="Frames")
+
+            all_interaction_results = dict()
+            result_progress = tqdm_notebook(leave=False, desc="Results")
+            def save_data(results):
+                nonlocal all_interaction_results
+                timestamp, frame_id, cam_id, core_data = results
+
+                all_interaction_results[(cam_id, timestamp, frame_id)] = core_data
+                result_progress.update()
+
+            executor = ProcessPoolExecutor(max_workers=32)
+            for result in executor.map(process_frame_with_prefilter, data_source()):
+                save_data(result)
+
+            data_df = pd.concat(all_interaction_results.values())
+            data_df.frame_id = data_df.frame_id.astype(np.uint64)
+            data_df.bee_id0 = data_df.bee_id0.astype(np.uint16)
+            data_df.bee_id1 = data_df.bee_id1.astype(np.uint16)
+
+            raw_df = list(data_df.itertuples(index=False))
+
+            with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zf:
+                with zf.open(output_filename.split("/")[-1].replace("zip", "msgpack"), "w") as file:
+                    msgpack.dump(raw_df, file, use_bin_type=True)
+
+            result_progress.close()
+
+        trange.update()
+        current_day_start = current_day_end
