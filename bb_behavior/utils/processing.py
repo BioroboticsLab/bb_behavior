@@ -20,7 +20,8 @@ class ParallelPipeline(object):
         def wrapper(inqueue, finished_barrier, outqueue, target, thread_context_factory=None):
             thread_context = None
             def _wrapped(thread_context=None):
-                if thread_context is None and thread_context_factory is not None:
+                takes_thread_context = "thread_context" in inspect.signature(target).parameters
+                if takes_thread_context and (thread_context is None) and (thread_context_factory is not None):
                     with thread_context_factory as ctx:
                          _wrapped(thread_context=ctx)
                          return
