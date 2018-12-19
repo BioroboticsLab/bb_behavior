@@ -1,5 +1,6 @@
 from .. import db
 from .. import utils
+from collections import defaultdict
 import numpy as np
 import pandas
 from numba import jit
@@ -107,7 +108,8 @@ class DataReader(object):
     def __init__(self,
                     dataframe=None, sample_count=None,
                     from_timestamp=None, to_timestamp=None, bee_ids=None, use_hive_coords=False,
-                    frame_margin=13, target_column="target", progress="tqdm_notebook", n_threads=16, feature_procs="auto"):
+                    frame_margin=13, target_column="target", progress="tqdm_notebook", n_threads=16, feature_procs="auto",
+                    chunk_frame_id_queries=False, verbose=False):
         self._dataframe = dataframe
         self._sample_count = sample_count
 
@@ -124,6 +126,9 @@ class DataReader(object):
         self._n_threads = n_threads
         self._tqdm = lambda x, **kwargs: x
         self._features = ("x", "y", "r", "mask")
+        self._chunk_frame_id_queries = chunk_frame_id_queries
+        self._verbose = verbose
+
         if progress == "tqdm_notebook":
             import tqdm
             self._tqdm = tqdm.tqdm_notebook
@@ -209,23 +214,30 @@ class DataReader(object):
         return self._dataset
 
     @staticmethod
-    def bee_id_to_trajectory(bee_id, frame_id=None, n_frames=None, frames=None, use_hive_coords=False, thread_context=None):
-        assert not np.isnan(bee_id)
+    def bee_id_to_trajectory(bee_id, frame_id=None, n_frames=None, frames=None, use_hive_coords=False, thread_context=None, detections=None):
+        if bee_id is not None:
+            assert not pandas.isnull(bee_id)
+            bee_id = int(bee_id)
 
         if frame_id is not None:
             frame_id = int(frame_id)
         traj = db.get_interpolated_trajectory(
-                                    int(bee_id),
+                                    bee_id,
                                     frame_id=frame_id, n_frames=n_frames,
                                     frames=frames,
                                     interpolate=True, verbose=False,
                                     cursor=thread_context, cursor_is_prepared=True,
-                                    use_hive_coords=use_hive_coords)
+                                    use_hive_coords=use_hive_coords,
+                                    detections=detections)
         if traj is None:
             return None
         traj, mask = traj
 
-        n_frames = n_frames or len(frames)
+        if n_frames is None:
+            if frames is not None:
+                n_frames = len(frames)
+            else:
+                n_frames = len(detections)
         if n_frames is not None and np.sum(mask) < n_frames // 2:
             return None
         assert np.sum(np.isnan(traj)) == 0 or np.sum(np.isnan(traj)) == traj.size
@@ -250,6 +262,69 @@ class DataReader(object):
             args = [(bee_id, frame_id, self._frame_margin) for bee_id in bee_ids]
             data = [DataReader.bee_id_to_trajectory(*a, use_hive_coords=self._use_hive_coords, thread_context=thread_context) for a in args]
             return index, data, target, bee_ids
+        # Used when chunk_frame_id_queries is true.
+        # This is an optimization to reduce the number of calls to the database and is likely only helpful when
+        # the data contains many events from the same (or neighboured) frame ids.
+        def iter_samples_chunk_frames():
+            # Allow some leeway in the frame timestamps - make sure that we have the correct number later.
+            margin_in_seconds = (2 + self._frame_margin) / 3
+            all_frame_ids = set(self.samples.frame_id.values)
+
+            with db.DatabaseCursorContext(application_name="Batch frame ids") as cursor:
+                frame_metadata = db.get_frame_metadata(frames=all_frame_ids, cursor=cursor, cursor_is_prepared=True)
+                # First, fetch all the required neighbouring frames.
+                for frame_id, cam_id, timestamp in frame_metadata[["frame_id", "cam_id", "timestamp"]].itertuples(index=False):
+                    ts_from, ts_to = timestamp - margin_in_seconds, timestamp + margin_in_seconds
+                    neighbour_frames = db.get_frames(cam_id, ts_from, ts_to, cursor=cursor, cursor_is_prepared=True)
+                    # We have potentially requested a bit more frames than we need. Filter.
+                    # First, find out where our target frame actually is.
+                    middle_index = None
+                    for i in range(len(neighbour_frames)):
+                        if neighbour_frames[i][1] == frame_id:
+                            middle_index = i
+                            break
+                    if middle_index is None:
+                        if self._verbose:
+                            print("Center frame ID not in return value of db.get_frames.")
+                        continue
+                    # Then cut the frames around our target frame based on index (instead of timestamp).
+                    neighbour_frames = neighbour_frames[(middle_index - self._frame_margin):(middle_index + self._frame_margin + 1)]
+                    if len(neighbour_frames) != self.timesteps:
+                        if self._verbose:
+                            print("Not enough neighbour frames for frame {} (found {})".format(frame_id, len(neighbour_frames)))
+                        continue
+
+                    matching_samples = self.samples.frame_id == frame_id
+                    sample_idx = np.where(matching_samples)[0]
+                    yield self.samples[matching_samples], sample_idx, neighbour_frames
+
+        def fetch_trajectory_data_for_frame_samples(samples, samples_idx, neighbour_frames, thread_context):    
+            cursor = thread_context
+
+            bee_ids = set()
+            for col in self._bee_id_columns:
+                bee_ids |= set(map(int, samples[col].values))
+            coords_string = "x_pos AS x, y_pos AS y, orientation"
+            if self._use_hive_coords:
+                coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
+            frame_ids = [int(f[1]) for f in neighbour_frames]
+            cursor.execute("SELECT bee_id, timestamp, frame_id, " + coords_string + ", track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id=ANY(%s) ORDER BY timestamp ASC",
+                        (frame_ids, list(bee_ids)))
+            bee_to_traj = defaultdict(list)
+            # Sort into bee ids.
+            for row in cursor.fetchall():
+                bee_to_traj[int(row[0])].append(row[1:])
+            # And, for all the data, generate consistent trajectories.
+            for bee_id in bee_to_traj:
+                bee_to_traj[bee_id] = db.get_consistent_track_from_detections(neighbour_frames, bee_to_traj[bee_id])
+
+            # Now we have a lookup table for all bees and can go through the samples.
+            for idx in range(samples.shape[0]):
+                bee_ids = [int(samples[bee].iloc[idx]) for bee in self._bee_id_columns]
+                target = np.float32(samples[self._target_column].iloc[idx]) if self._target_column is not None else 0.0
+                yield (samples_idx[idx],
+                    [DataReader.bee_id_to_trajectory(bee_id=None, detections=bee_to_traj[bee_id]) for bee_id in bee_ids],
+                    target, bee_ids)
 
         # the timespan functions are used when begin & end timestamps are provided.
         def iter_cam_ids():
@@ -312,7 +387,12 @@ class DataReader(object):
         if self.samples is not None:
             if self._verbose:
                 print("Generating data for samples of the provided dataframe.")
-            pipeline = utils.processing.ParallelPipeline(jobs=[iter_samples, fetch_data_from_sample] + data_processing,
+            data_source = [iter_samples, fetch_data_from_sample]
+            if self._chunk_frame_id_queries:
+                data_source = [iter_samples_chunk_frames, fetch_trajectory_data_for_frame_samples]
+                if self._verbose:
+                    print("Using chunked frames optimization.")
+            pipeline = utils.processing.ParallelPipeline(jobs=data_source + data_processing,
                                         n_thread_map={1:self._n_threads}, thread_context_factory=make_thread_context)
             pipeline()
         else:
