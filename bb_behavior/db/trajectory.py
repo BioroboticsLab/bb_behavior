@@ -69,49 +69,22 @@ class DatabaseCursorContext(object):
     def cursor(self):
         return self._cursor
 
-    
-def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
-                        use_hive_coords=False,
-                        cursor=None, cursor_is_prepared=False, **kwargs):
-    """Fetches all detections for a bee between some time points or around a center frame.
-        The results include "None" when no detection was found for a time step.
-        
-        Arguments:
-            bee_id: database ID (ferwar format) of the focal individual
-            verbose: whether to print extra information
-            frame_id: optional center frame ID, use with n_frames or seconds (see get_neighbour_frames)
-            frames: optional list of frames containing tuples of (timestamp, frame_id, cam_id), see get_frames
-            use_hive_coords: (default False) whether to retrieve hive coordinates
-            cursor: optional database cursor to work on
-            
-        Returns:
-            List containing tuples of (timestamp, frame_id, x_pos, y_pos, orientation, track_id) sorted by timestamp; can contain None
-    """
-    if type(bee_id) != int:
-        bee_id = bee_id.as_ferwar()
-    if frames is None and frame_id is None:
-        raise ValueError("Either frame_id or frames must be provided.")
-    if not frames and not frame_id:
-        raise ValueError("frames must not be empty.")
+def get_consistent_track_from_detections(frames, detections, verbose=False):
+    """Takes an ordered list of frames and detections for that frames and filters out duplicate detections.
 
-    if cursor is None:
-        with base.get_database_connection(application_name="get_bee_detections") as db:
-            return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, cursor=db.cursor(), **kwargs)
-    
-    frames = frames or sampling.get_neighbour_frames(frame_id=frame_id, cursor=cursor, cursor_is_prepared=cursor_is_prepared, **kwargs)
-    frame_ids = [int(f[1]) for f in frames]
-    
-    if not cursor_is_prepared:
-        coords_string = "x_pos AS x, y_pos AS y, orientation"
-        if use_hive_coords:
-            coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
-        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
-                        (frame_ids, bee_id))
-    else:
-        prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
-        cursor.execute("EXECUTE " + prepared_statement_name + " (%s, %s)", (frame_ids, bee_id))
-    detections = cursor.fetchall()
-    
+    Arguments:
+        frames: list(tuple(timestmap, frame_id, cam_id))
+            See get_neighbour_frames.
+        detections: list(tuple(timestamp, frame_id, x, y, orientation, track_id))
+            Ordered by timestamp.
+            Possible detections (can contain duplicates and missing detections).
+        verbose: bool
+            Whether to print additional output.
+
+    Returns:
+        list(tuple(timestamp, frame_id, x_pos, y_pos, orientation, track_id)) sorted by timestamp; can contain None.
+        Length is the same as the length of 'frames'.
+    """
     results = []
     for n_idx, (timestamp, frame_id, _) in enumerate(frames):
         if len(detections) == 0:
@@ -156,6 +129,50 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
             results.append(None)
     return results
 
+def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
+                        use_hive_coords=False,
+                        cursor=None, cursor_is_prepared=False, **kwargs):
+    """Fetches all detections for a bee between some time points or around a center frame.
+        The results include "None" when no detection was found for a time step.
+        
+        Arguments:
+            bee_id: database ID (ferwar format) of the focal individual
+            verbose: whether to print extra information
+            frame_id: optional center frame ID, use with n_frames or seconds (see get_neighbour_frames)
+            frames: optional list of frames containing tuples of (timestamp, frame_id, cam_id), see get_frames
+            use_hive_coords: (default False) whether to retrieve hive coordinates
+            cursor: optional database cursor to work on
+            
+        Returns:
+            List containing tuples of (timestamp, frame_id, x_pos, y_pos, orientation, track_id) sorted by timestamp; can contain None
+    """
+    if type(bee_id) != int:
+        bee_id = bee_id.as_ferwar()
+    if frames is None and frame_id is None:
+        raise ValueError("Either frame_id or frames must be provided.")
+    if not frames and not frame_id:
+        raise ValueError("frames must not be empty.")
+
+    if cursor is None:
+        with base.get_database_connection(application_name="get_bee_detections") as db:
+            return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, cursor=db.cursor(), **kwargs)
+    
+    frames = frames or sampling.get_neighbour_frames(frame_id=frame_id, cursor=cursor, cursor_is_prepared=cursor_is_prepared, **kwargs)
+    frame_ids = [int(f[1]) for f in frames]
+    
+    if not cursor_is_prepared:
+        coords_string = "x_pos AS x, y_pos AS y, orientation"
+        if use_hive_coords:
+            coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
+        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
+                        (frame_ids, bee_id))
+    else:
+        prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
+        cursor.execute("EXECUTE " + prepared_statement_name + " (%s, %s)", (frame_ids, bee_id))
+    detections = cursor.fetchall()
+    
+    return get_consistent_track_from_detections(frames, detections, verbose=verbose)
+
 @numba.njit
 def short_angle_dist(a0,a1):
     """Returns the signed distance between two angles in radians.
@@ -174,7 +191,7 @@ def angle_lerp(a0,a1,t):
     """
     return a0 + short_angle_dist(a0,a1)*t
 
-def get_bee_trajectory(bee_id, frame_id=None, frames=None, **kwargs):
+def get_bee_trajectory(bee_id, frame_id=None, frames=None, detections=None, **kwargs):
     """Returns the trajectory (x, y, orientation) of a bee as a numpy array.
         Missing detections will be filled with np.nan.
         
@@ -182,11 +199,12 @@ def get_bee_trajectory(bee_id, frame_id=None, frames=None, **kwargs):
             bee_id: database ID (ferwar format) for the focal individual
             frame_id: optional center frame ID, use with n_frames or seconds (see get_neighbour_frames)
             frames: optional list of frames containing tuples of (timestamp, frame_id, cam_id), see get_frames
-
+            detections: list(tuple())
+                Optional. Same format as returned by get_bee_detections. If given, all other parameters can be None.
         Returns:
             numpy array (float 32) of shape (N, 3)
     """
-    detections = get_bee_detections(bee_id, frame_id=frame_id, frames=frames, **kwargs)
+    detections = detections or get_bee_detections(bee_id, frame_id=frame_id, frames=frames, **kwargs)
     # (dt, frame_id, x, y, alpha)
     def unpack(d):
         if d is None:
@@ -240,7 +258,7 @@ def interpolate_trajectory(trajectory):
         
     return not_nans.astype(np.float32)
 
-def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=True, **kwargs):
+def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=True, detections=None, **kwargs):
     """Fetches detections from the database and interpolates missing detections linearly.
         
         Arguments:
@@ -248,13 +266,15 @@ def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=
             frame_id: optional center frame ID, use with n_frames or seconds (see get_neighbour_frames)
             frames: optional list of frames containing tuples of (timestamp, frame_id, cam_id), see get_frames
             interpolate: whether to fill missing detections with a linear interpolation (instead of np.nan)
+            detections: list(tuple())
+                Optional. Same format as returned by get_bee_detections. If given, all other parameters can be None.
         
         Returns:
             (trajectory, mask): numpy arrays (float 32).
                                 trajectory is of shape (N, 3) containing (x_pos, y_pos, orientation).
                                 mask is of shape (N,) containing 1.0 for original and 0.0 for interpolated values.
     """
-    trajectory = get_bee_trajectory(bee_id, frame_id=frame_id, frames=frames, **kwargs)
+    trajectory = get_bee_trajectory(bee_id, frame_id=frame_id, frames=frames, detections=detections, **kwargs)
     mask = None
     if interpolate:
         mask = interpolate_trajectory(trajectory)
