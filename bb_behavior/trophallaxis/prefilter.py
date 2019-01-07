@@ -202,6 +202,9 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm
             for result in executor.map(process_frame_with_prefilter, data_source()):
                 save_data(result)
 
+            if len(all_interaction_results) == 0:
+                continue
+
             data_df = pd.concat(all_interaction_results.values())
             data_df.frame_id = data_df.frame_id.astype(np.uint64)
             data_df.bee_id0 = data_df.bee_id0.astype(np.uint16)
