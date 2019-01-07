@@ -27,7 +27,7 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
     import pandas
 
     if cursor is None:
-        with base.get_database_connection(application_name="sample_frames") as db:
+        with base.get_database_connection(application_name="find_interactions_in_frame") as db:
             cursor = db.cursor()
             return find_interactions_in_frame(frame_id=frame_id,
                                               max_distance=max_distance,
