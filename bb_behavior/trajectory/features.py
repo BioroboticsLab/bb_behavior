@@ -109,7 +109,7 @@ class DataReader(object):
                     dataframe=None, sample_count=None,
                     from_timestamp=None, to_timestamp=None, bee_ids=None, use_hive_coords=False,
                     frame_margin=13, target_column="target", progress="tqdm_notebook", n_threads=16, feature_procs="auto",
-                    chunk_frame_id_queries=False, verbose=False):
+                    chunk_frame_id_queries=False, verbose=False, Y_dtype=np.float32):
         self._dataframe = dataframe
         self._sample_count = sample_count
 
@@ -128,6 +128,7 @@ class DataReader(object):
         self._features = ("x", "y", "r", "mask")
         self._chunk_frame_id_queries = chunk_frame_id_queries
         self._verbose = verbose
+        self._Y_dtype = Y_dtype
 
         if progress == "tqdm_notebook":
             import tqdm
@@ -434,7 +435,7 @@ class DataReader(object):
         if self._feature_procs is None:
             raise ValueError("feature_procs must not be None (hint: use 'auto' or load features from a file).")
         self._X = []
-        self._Y = np.zeros(shape=(len(self.dataset), 1), dtype=np.float32)
+        self._Y = np.zeros(shape=(len(self.dataset), 1), dtype=self._Y_dtype)
 
         for idx, (data, target) in enumerate(self._tqdm(self.dataset, desc="Calculating features")):
             self._X.append(trajectories_to_features(copy.deepcopy(data), self._feature_procs))
