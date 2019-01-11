@@ -34,6 +34,7 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
                                               min_distance=min_distance,
                                               confidence_threshold=confidence_threshold,
                                               distance_func=distance_func,
+                                              features=features,
                                               cursor=cursor, cursor_is_prepared=False)
     
     fields = set(("x_pos_hive", "y_pos_hive", "orientation_hive")) | set(features)

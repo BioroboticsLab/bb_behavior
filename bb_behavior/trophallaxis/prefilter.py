@@ -61,6 +61,7 @@ def get_data_for_frame_id(timestamp, frame_id, cam_id,
     r = find_interactions_in_frame(
             frame_id, max_distance=max_distance, min_distance=min_distance,
             distance_func=distance_func,
+                features=["x_pos_hive", "y_pos_hive", "orientation_hive"],
             cursor=thread_context, cursor_is_prepared=thread_context is not None)
     
     core_data = [i[:3] for i in r]
