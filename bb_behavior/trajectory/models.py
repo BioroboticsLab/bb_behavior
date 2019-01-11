@@ -1,5 +1,6 @@
 from ..utils import model_selection
 import torch
+import torch.nn.functional
 import torch.nn
 import sklearn.metrics
 import numpy as np
@@ -43,8 +44,8 @@ class CNN1D(torch.nn.Module):
     def __init__(self, n_features, timesteps, num_layers=2, n_channels=9,\
                  kernel_size=5, conv_dropout=0.33, max_pooling=True, batch_norm=True,
                  initial_batch_size=64, grow_batch_size=True, initial_learning_rate=0.001, learning_rate_decay=0.98, train_epochs=100,
-                 cuda=True, optimizer="adam", class_weights=None):
-        super(CNN1D, self).__init__()
+                 cuda=True, optimizer="adam", class_weights=None, n_classes=2):
+        super().__init__()
 
         self.num_layers = num_layers
         self.n_channels = n_channels
@@ -58,6 +59,7 @@ class CNN1D(torch.nn.Module):
         self.learning_rate_decay = learning_rate_decay
         self.optimizer = optimizer
         self.class_weights = class_weights
+        self.n_classes = n_classes
 
         self.convs = []
         self.n_features = n_features
@@ -84,8 +86,7 @@ class CNN1D(torch.nn.Module):
         denses = []
         denses.append(torch.nn.Linear(last_conv_size, 8))
         denses.append(torch.nn.SELU())
-        denses.append(torch.nn.Linear(8, 1))
-        denses.append(torch.nn.Sigmoid())
+        denses.append(torch.nn.Linear(8, n_classes))
         
         self.denses = torch.nn.Sequential(*denses)
         
@@ -103,6 +104,10 @@ class CNN1D(torch.nn.Module):
         #print (inputs.size())
         inputs = inputs.view(batch_size, self.out_channels * self.o_depth)
         inputs = self.denses(inputs)
+        if self.training:
+            inputs = torch.nn.functional.log_softmax(inputs, dim=1)
+        else:
+            inputs = torch.nn.functional.softmax(inputs, dim=1)
         #print("ALL IS FINE.")
         #inputs = self.denses(inputs)
         return inputs
@@ -131,15 +136,19 @@ class CNN1D(torch.nn.Module):
             Y_predicted.append(y.data.numpy())
 
         Y_predicted = np.vstack(Y_predicted)
-        # probas.
-        return np.hstack((1.0 - Y_predicted, Y_predicted))
+        return Y_predicted
 
     def predict(self, *args, **kwargs):
         Y_probas = self.predict_proba(*args, **kwargs)
         return np.argmax(Y_probas, axis=1)
 
+    @staticmethod
+    def to_onehot_buffer(n_classes, y):
+        return np.eye(n_classes, dtype=np.float32)[y]
+
     def fit(self, X, y, test_X=None, test_y=None, clean=True, progress=None, checkpoint_path=None,
-        optimizer=None, criterion=None, cuda=None, metric=None, show_graphs=False, figsize=(16, 2)):
+        optimizer=None, criterion=None, cuda=None, metric=None, show_graphs=False, figsize=(16, 2),
+        label_smoothing=0.01, is_one_hot=True, lr_warmup_epochs=5):
         if cuda is None:
             cuda = self.use_cuda
 
@@ -162,7 +171,7 @@ class CNN1D(torch.nn.Module):
             else:
                 ValueError("Unknown optimizer: {}".format(self.optimizer))
 
-        criterion = criterion() if not criterion is None else torch.nn.BCELoss()
+        criterion = criterion() if not criterion is None else torch.nn.KLDivLoss()
         if cuda:
             criterion.cuda()
 
@@ -189,8 +198,9 @@ class CNN1D(torch.nn.Module):
                 batch_size_epoch = 1 + (0.05 * min(epoch, 50))
 
             current_batch_size = int(batch_size * batch_size_epoch)
-            current_learning_rate = ((self.initial_learning_rate / (batch_size_epoch * 0.5)) * (self.learning_rate_decay ** epoch))
-
+            current_learning_rate = ((self.initial_learning_rate * batch_size_epoch) * (self.learning_rate_decay ** epoch))
+            if lr_warmup_epochs and (epoch < lr_warmup_epochs):
+                current_learning_rate = (epoch + 1) * current_learning_rate / lr_warmup_epochs
             epoch_optimizer = optimizer(self.parameters(), lr=current_learning_rate)
 
             minibatch_iter = enumerate(model_selection.iterate_minibatches(X, y, batchsize=current_batch_size, shuffle=True))
@@ -213,8 +223,14 @@ class CNN1D(torch.nn.Module):
                         weights = torch.from_numpy(weights)
                         criterion.weights = weights
                     #batch_Y = onehot.transform(batch_Y)
+                    if not is_one_hot:
+                        batch_Y = CNN1D.to_onehot_buffer(self.n_classes, batch_Y)
+                    if label_smoothing > 0.0:
+                        correct_labels_idx = batch_Y == 1.0
+                        batch_Y[correct_labels_idx] -= label_smoothing
+                        batch_Y[~correct_labels_idx] += label_smoothing / (self.n_classes - 1)
                     batch_Y = torch.from_numpy(batch_Y)
-                    batch_Y = torch.autograd.Variable(batch_Y.float())
+                    batch_Y = torch.autograd.Variable(batch_Y)
                     if cuda:
                         batch_Y = batch_Y.cuda()
                     loss = criterion(Y_predicted, batch_Y)
