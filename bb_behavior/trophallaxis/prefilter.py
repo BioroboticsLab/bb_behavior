@@ -161,7 +161,7 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm
     if target_dir is None:
         target_dir = "/mnt/storage/david/cache/beesbook/trophallaxis/"
     trange = progress(total=(dt_to-dt_from).days, desc="Days")
-    
+    skipped = 0
     current_day_start = dt_from
     while True:
         if current_day_start > dt_to:
@@ -175,8 +175,9 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm
                     cam, str(dt), str(dt_to))
             output_filename = dt_to_string(cam_id, current_day_start, current_day_end)
             if os.path.isfile(output_filename):
+                skipped += 1
                 if trange is not None:
-                    trange.write("Skipping..")
+                    trange.set_postfix(dict(skipped=skipped))
                 continue
 
             def iter_frames_to_filter(cam_id, from_, to_):
