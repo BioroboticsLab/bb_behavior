@@ -51,7 +51,7 @@ def validate_interaction_duration(interaction,
     trajs = [trajs[0][0], trajs[1][0]]
     if np.any(np.isnan(trajs)): # Is at least one trajectory invalid?
         return None
-        
+    
     distances = np.linalg.norm(trajs[0][:, :2] - trajs[1][:, :2], axis=1)
     valid_distances = (distances > min_distance) & (distances <= max_distance)
     
@@ -74,8 +74,9 @@ def get_trophallaxis_samples(number_of_frames, max_distance, min_distance, minim
         nonlocal all_interaction_results
         all_interaction_results.append(interaction)
     
-    def _get_interactions_for_frame_id(*args, **kwargs):
-        yield from get_interactions_for_frame_id(*args, max_distance=max_distance, min_distance=min_distance, **kwargs)
+    def _get_interactions_for_frame_id(*args, thread_context=None, **kwargs):
+        yield from get_interactions_for_frame_id(*args, max_distance=max_distance, min_distance=min_distance,
+                    thread_context=thread_context, **kwargs)
 
     data_source = iter_frames
     if dt_from is not None and dt_to is not None:
@@ -84,10 +85,12 @@ def get_trophallaxis_samples(number_of_frames, max_distance, min_distance, minim
         data_source = iter_frames_from_range
 
     pipeline = ParallelPipeline([data_source, _get_interactions_for_frame_id,
-                                lambda *args, **kwargs: filter_orientations(*args, minimum_relative_orientation=minimum_relative_orientation, **kwargs),
-                                lambda *args, **kwargs: validate_interaction_duration(*args,
+                                lambda *args, thread_context=None, **kwargs: filter_orientations(*args,
+                                        minimum_relative_orientation=minimum_relative_orientation,
+                                        thread_context=thread_context, **kwargs),
+                                lambda *args, thread_context=None, **kwargs: validate_interaction_duration(*args,
                                         max_distance=max_distance, min_distance=min_distance,
-                                        minimum_relative_orientation=minimum_relative_orientation, **kwargs),
+                                        minimum_relative_orientation=minimum_relative_orientation, thread_context=thread_context, **kwargs),
                                 save_interaction],
                                 n_thread_map={3:4},
                                 thread_context_factory=make_thread_context)
