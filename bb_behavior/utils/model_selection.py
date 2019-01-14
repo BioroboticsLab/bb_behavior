@@ -89,7 +89,7 @@ def plot_thresholds_curve(Y_true, Y_predicted, tpr=None, thresholds=None, ax=Non
         fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_title("Influence of threshold on results")
     ax.plot(percentage_thresholds, percentages, "k-", label="Classified w/\npositive label")
-    ax.plot(thresholds, precision, "r", label="Precision (PPV)")
+    ax.plot(percentage_thresholds, precision, "r", label="Precision (PPV)")
     ax.plot(thresholds, tpr, "g--", label="Hit rate (TPR; Recall)")
     ax.plot(thresholds, 1.0 - tpr, "b:", label="Miss rate (FNR; 1.0 - TPR)")
     ax.set_ylabel("Fraction of data")
