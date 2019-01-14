@@ -49,6 +49,8 @@ def validate_interaction_duration(interaction,
                 cursor=thread_context, cursor_is_prepared=(thread_context is not None)) for bee_id in bee_ids]
     masks = [trajs[0][1], trajs[1][1]]
     trajs = [trajs[0][0], trajs[1][0]]
+    if np.any(np.isnan(trajs)): # Is at least one trajectory invalid?
+        return None
         
     distances = np.linalg.norm(trajs[0][:, :2] - trajs[1][:, :2], axis=1)
     valid_distances = (distances > min_distance) & (distances <= max_distance)
