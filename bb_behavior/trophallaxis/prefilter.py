@@ -119,7 +119,7 @@ def load_processed_data(f):
                 return load_processed_data(file)
 
     try:
-        data = msgpack.load(f)
+        data = msgpack.load(f, max_array_len=2147483647)
     except Exception as e:
         print("Error unpickling!")
         print(str(e))
