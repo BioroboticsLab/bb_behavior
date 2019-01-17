@@ -107,19 +107,19 @@ def get_available_processed_days(base_path=None):
     return available_files_df
 
 def load_processed_data(f):
-    import cloudpickle
+    import msgpack
     if type(f) is str:
         if f.endswith(".zip"):
             import zipfile
             with zipfile.ZipFile(f, "r") as zf:
-                file = zf.open(f.split("/")[-1].replace(".zip", ".cloudpickle"))
+                file = zf.open(f.split("/")[-1].replace(".zip", ".msgpack"))
                 return load_processed_data(file)
-        elif f.endswith(".cloudpickle"):
+        elif f.endswith(".msgpack"):
             with open(f, "rb") as file:
                 return load_processed_data(file)
 
     try:
-        data = cloudpickle.load(f)
+        data = msgpack.load(f)
     except Exception as e:
         print("Error unpickling!")
         print(str(e))
@@ -127,9 +127,7 @@ def load_processed_data(f):
 
     if not data:
         return None
-    data = pd.concat(list(data.values()))
-    data.frame_id = data.frame_id.astype(np.uint64)
-    
+    data = pd.DataFrame(data, columns=["frame_id", "bee_id0", "bee_id1"], dtype=np.uint64)    
     all_frame_ids = data.frame_id.unique()
     metadata = get_frame_metadata(all_frame_ids)
     metadata.frame_id = metadata.frame_id.astype(np.uint64)
