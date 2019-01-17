@@ -88,7 +88,14 @@ def plot_thresholds_curve(Y_true, Y_predicted, tpr=None, thresholds=None, ax=Non
     if ax is None:
         fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_title("Influence of threshold on results")
-    ax.plot(percentage_thresholds, percentages, "k-", label="Classified w/\npositive label")
+
+    f_scores = [[sklearn.metrics.fbeta_score(Y_true, Y_predicted >= t, f_beta) for t in percentage_thresholds]
+                for f_beta in (0.5, 1.0, 2.0)]
+    ax.fill_between(percentage_thresholds, f_scores[0], f_scores[-1], color="gray", alpha=0.5)
+    ax.plot(percentage_thresholds, f_scores[1], c="gray", linestyle=":", label="F-Score", alpha=0.5)
+        
+
+    ax.plot(percentage_thresholds, percentages, "k-", label="Positive rate")
     ax.plot(percentage_thresholds, precision, "r", label="Precision (PPV)")
     ax.plot(thresholds, tpr, "g--", label="Hit rate (TPR; Recall)")
     ax.plot(thresholds, 1.0 - tpr, "b:", label="Miss rate (FNR; 1.0 - TPR)")
