@@ -53,6 +53,10 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
     
     annotated_frames = []
     for idx, frame_id in enumerate(frames):
+        if frame_id not in frame_id_dict:
+            import warnings
+            warnings.warn("Frame ID {} not found in database.".format(frame_id))
+            continue
         meta = list(frame_id_dict[frame_id])
         #meta[0] = int(meta[0])
         if include_video_name:
