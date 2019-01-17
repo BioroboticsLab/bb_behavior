@@ -16,8 +16,12 @@ def iterate_minibatches(inputs, targets, batchsize, shuffle=False):
             excerpt = indices[start_idx:start_idx + batchsize]
         else:
             excerpt = slice(start_idx, start_idx + batchsize)
-        sub_targets = targets[excerpt] if targets is not None else None
-        yield inputs[excerpt], sub_targets
+            
+        if targets is None:
+            yield inputs[excerpt]
+        else:
+            sub_targets = targets[excerpt]
+            yield inputs[excerpt], sub_targets
 
 def optimization_objective_function(make_model_fun, train_model_fun=None, datareader=None, scorer=None, X=None, Y=None, groups=None, *args, **kwargs):
     if scorer is None:
