@@ -113,10 +113,10 @@ def load_processed_data(f, warnings_as_errors=False):
             import zipfile
             with zipfile.ZipFile(f, "r") as zf:
                 file = zf.open(f.split("/")[-1].replace(".zip", ".msgpack"))
-                return load_processed_data(file)
+                return load_processed_data(file, warnings_as_errors=warnings_as_errors)
         elif f.endswith(".msgpack"):
             with open(f, "rb") as file:
-                return load_processed_data(file)
+                return load_processed_data(file, warnings_as_errors=warnings_as_errors)
 
     try:
         data = msgpack.load(f, max_array_len=2147483647)
