@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 import psycopg2.extras
 
-def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dataframe=True, include_video_name=False):
+def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dataframe=True, include_video_name=False,
+    warnings_as_errors=False):
     """Takes a list of frame IDs and fetches additional data such as timestamps, cam_id, frame container ID, ...
 
     Arguments:
@@ -17,6 +18,8 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
             Whether to return a pandas.DataFrame (instead of a list of tuples).
         include_video_name: bool
             Whether to include the original filename of the video in the results.
+        warnings_as_errors: bool
+            Whether to raise an exception instead of a warning.
     Returns:
         annotated_frames: pandas.DataFrame
             DataFrame with the columns frame_id, timestamp, frame_idx, fc_id, cam_id, [video_name].
@@ -26,7 +29,8 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
     """
     if cursor is None:
         with base.get_database_connection("Frame metadata") as con:
-            return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False, return_dataframe=return_dataframe, include_video_name=include_video_name)
+            return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False, return_dataframe=return_dataframe,
+                include_video_name=include_video_name, warnings_as_errors=warnings_as_errors)
     if not cursor_is_prepared:
         cursor.execute("PREPARE get_frame_metadata AS "
            "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
@@ -54,9 +58,13 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
     annotated_frames = []
     for idx, frame_id in enumerate(frames):
         if frame_id not in frame_id_dict:
-            import warnings
-            warnings.warn("Frame ID {} not found in database.".format(frame_id))
-            continue
+            warning = "Frame ID {} not found in database.".format(frame_id)
+            if warnings_as_errors:
+                raise ValueError(warning)
+            else:
+                import warnings
+                warnings.warn(warning)
+                continue
         meta = list(frame_id_dict[frame_id])
         #meta[0] = int(meta[0])
         if include_video_name:

@@ -7,6 +7,7 @@ import concurrent.futures
 import torch
 import tqdm
 import os.path
+import warnings
 import zipfile
 
 from . import prefilter
@@ -69,6 +70,8 @@ def load_features(data):
         datareader.create_features()
     except Exception as e:
         #n_failed_chunks += 1
+        from IPython.display import display
+        display(data)
         print("Chunk failed with {}".format(str(e)))
         return None
     #n_features_loaded += 1
@@ -77,7 +80,7 @@ def load_features(data):
 def to_output_filename(path):
     return path.replace("prefilter", "trajfilter").replace("msgpack", "zip")
 
-def process_preprocessed_data(progress="tqdm"):
+def process_preprocessed_data(progress="tqdm", use_cuda=True):
     class ThreadCtx():
         def __enter__(self):
             return dict()
@@ -100,7 +103,13 @@ def process_preprocessed_data(progress="tqdm"):
             if os.path.isfile(to_output_filename(filepath)):
                 print("Skipping {}".format(filepath))
                 continue
-            data = prefilter.load_processed_data(filepath)
+            data = None
+            try:
+                data = prefilter.load_processed_data(filepath, warnings_as_errors=True)
+            except Exception as e:
+                e = "Error! Skipping file {}. [{}]".format(filepath, str(e))
+                print(e)
+                continue
             if data is None:
                 continue
             data.sort_values("frame_id", inplace=True)
@@ -109,11 +118,14 @@ def process_preprocessed_data(progress="tqdm"):
     n_features_loaded = 0
     n_failed_chunks = 0
     
-    
-    #def predict(datareader, thread_context, **kwargs):
     def predict(X, samples, valid_sample_indices, thread_context, **kwargs):
         if not "model" in thread_context:
-            thread_context["model"] = torch.load("/mnt/storage/david/cache/beesbook/trophallaxis/1dcnn.cache")
+            torch_kwargs = dict()
+            if not use_cuda:
+                torch_kwargs["map_location"] = torch.device("cpu")
+            thread_context["model"] = torch.load("/mnt/storage/david/cache/beesbook/trophallaxis/1dcnn.cache", **torch_kwargs)
+            if not use_cuda:
+                thread_context["model"].use_cuda = False
         model = thread_context["model"]
         Y = model.predict_proba(X)[:, 1]
         results = []

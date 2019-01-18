@@ -106,7 +106,7 @@ def get_available_processed_days(base_path=None):
     available_files_df = pd.DataFrame(available_files_df)
     return available_files_df
 
-def load_processed_data(f):
+def load_processed_data(f, warnings_as_errors=False):
     import msgpack
     if type(f) is str:
         if f.endswith(".zip"):
@@ -129,7 +129,10 @@ def load_processed_data(f):
         return None
     data = pd.DataFrame(data, columns=["frame_id", "bee_id0", "bee_id1"], dtype=np.uint64)    
     all_frame_ids = data.frame_id.unique()
-    metadata = get_frame_metadata(all_frame_ids)
+    try:
+        metadata = get_frame_metadata(all_frame_ids, warnings_as_errors=warnings_as_errors)
+    except Exception as e:
+        raise e
     metadata.frame_id = metadata.frame_id.astype(np.uint64)
     metadata["datetime"] = pd.to_datetime(metadata.timestamp, unit="s")
     
