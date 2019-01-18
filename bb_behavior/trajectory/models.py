@@ -171,7 +171,7 @@ class CNN1D(torch.nn.Module):
             else:
                 ValueError("Unknown optimizer: {}".format(self.optimizer))
 
-        criterion = criterion() if not criterion is None else torch.nn.KLDivLoss()
+        criterion = criterion() if not criterion is None else torch.nn.KLDivLoss(reduction="none")
         if cuda:
             criterion.cuda()
 
@@ -205,8 +205,6 @@ class CNN1D(torch.nn.Module):
 
             minibatch_iter = enumerate(model_selection.iterate_minibatches(X, y, batchsize=current_batch_size, shuffle=True))
             for minibatch_idx, (batch_X, batch_Y) in minibatch_iter:
-                #print(batch_X.shape)
-                #break
                 batch_X = torch.from_numpy(batch_X)
                 
                 batch_X = torch.autograd.Variable(batch_X)
@@ -216,15 +214,21 @@ class CNN1D(torch.nn.Module):
                 Y_predicted = self.forward(batch_X, verbose=False, cuda=cuda)
 
                 if batch_Y is not None:
-                    if self.class_weights is not None:
-                        weights = np.ones(shape=(batch_Y.shape[0]), dtype=np.float32)
-                        for label, weight in self.class_weights.items():
-                            weights[batch_Y[:, 0] == label] = weight
-                        weights = torch.from_numpy(weights)
-                        criterion.weights = weights
                     #batch_Y = onehot.transform(batch_Y)
+                    weights = None
                     if not is_one_hot:
+                        batch_Y = batch_Y.flatten()
+                        if self.class_weights is not None:
+                            weights = np.ones(shape=(batch_Y.shape[0], self.n_classes), dtype=np.float32)
+                            for label, weight in self.class_weights.items():
+                                weights[batch_Y == label, :] = weight
+                            weights = torch.from_numpy(weights)
+                            if cuda:
+                                weights = weights.cuda()
+                            weights = torch.autograd.Variable(weights)
+
                         batch_Y = CNN1D.to_onehot_buffer(self.n_classes, batch_Y)
+
                     if label_smoothing > 0.0:
                         correct_labels_idx = batch_Y == 1.0
                         batch_Y[correct_labels_idx] -= label_smoothing
@@ -234,14 +238,16 @@ class CNN1D(torch.nn.Module):
                     if cuda:
                         batch_Y = batch_Y.cuda()
                     loss = criterion(Y_predicted, batch_Y)
-
+                    if weights is not None:
+                        loss *= weights
+                    
                 self.zero_grad()
-                loss.backward()
+                loss.sum().backward()
 
                 epoch_optimizer.step()
 
                 # print statistics
-                running_loss += loss.data[0]
+                running_loss += loss.data.abs().sum()
                 if progress is not None and (minibatch_idx % loss_step == (loss_step - 1)):
                     epoch_iterator.set_postfix({"Batch Size": "{:5d}".format(current_batch_size),
                                             "Test Score": test_score,
