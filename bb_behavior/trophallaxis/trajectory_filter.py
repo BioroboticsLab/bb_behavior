@@ -1,3 +1,4 @@
+import datetime
 import msgpack
 import numba
 import numpy as np
@@ -13,6 +14,7 @@ import zipfile
 from . import prefilter
 from .. import trajectory
 from .. import utils
+from .. import db
 
 @numba.jit
 def traj2cossin(traj):
@@ -201,3 +203,86 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True):
         with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zf:
                 with zf.open(output_filename.split("/")[-1].replace("zip", "msgpack"), "w") as file:
                     msgpack.dump(raw_df, file, use_bin_type=True)
+
+def get_available_processed_days(base_path=None):
+    """Loads the available processed trajectory data chunks' metadata and returns them as a data frame.
+    Arguments:
+        base_path: string
+            Path of the directory that contains the files matching 'trajfilter.*.zip'.
+    Returns:
+        pandas.DataFrame
+        Containing at least the columns cam_id, begin, end, filename.
+    """
+    import glob
+    if base_path is None:
+        base_path = "/mnt/storage/david/cache/beesbook/trophallaxis"
+    available_files = set()
+    for ext in ("zip",):
+        available_files |= set(glob.glob(base_path + "/trajfilter.*." + ext))
+    
+    available_files = list(sorted(list(available_files)))
+    available_files_df = []
+    for filename in available_files:
+        leaf_name = filename.split("/")[-1]
+        infos = leaf_name.split(".")[1]
+        infos = infos.split("_")
+        cam_id = int(infos[0])
+        datetime_from, datetime_to = [datetime.datetime.strptime(dt.split("+")[0], "%Y-%m-%d %H:%M:%S") for dt in infos[1:]]
+        available_files_df.append(dict(
+            cam_id=cam_id,
+            begin=datetime_from,
+            end=datetime_to,
+            filename=filename
+        ))
+        
+    available_files_df = pd.DataFrame(available_files_df)
+    return available_files_df
+
+def load_processed_data(f, threshold):
+    """Takes a file path containing trajectory data and loads it, returning a data frame with additional metadata.
+
+    Arguments:
+        f: string
+            Path to trajectory data archive file.
+        threshold:
+            Classifier threshold to filter the results before querying the metadata from the database.
+
+    Returns:
+        pandas.DataFrame
+    """
+    data = None
+    try:
+        with zipfile.ZipFile(f, "r", zipfile.ZIP_DEFLATED) as zf:
+            with zf.open(f.split("/")[-1].replace("zip", "msgpack"), "r") as file:
+                data = msgpack.load(file)
+    except Exception as e:
+        print("Error loading {}".format(f))
+        print(str(e))
+        return None
+
+    if len(data) == 0:
+        return None
+    from IPython.display import display
+    frame_id, bee_id0, bee_id1, score = zip(*data)
+    frame_id = pd.Series(frame_id, dtype=np.uint64)
+    bee_id0 = pd.Series(bee_id0, dtype=np.uint16)
+    bee_id1 = pd.Series(bee_id1, dtype=np.uint16)
+    score = pd.Series(score, dtype=np.float32)
+    data = [frame_id, bee_id0, bee_id1, score]
+    data = pd.concat(data, axis=1)
+    data.columns = ["frame_id", "bee_id0", "bee_id1", "score"]
+    data = data[(~pd.isnull(data.score)) & (data.score >= threshold)]
+    all_frame_ids = data.frame_id.unique()
+    
+    metadata = db.metadata.get_frame_metadata(all_frame_ids)
+    metadata.frame_id = metadata.frame_id.astype(np.uint64)
+    metadata["datetime"] = pd.to_datetime(metadata.timestamp, unit="s")
+    
+    data = data.merge(metadata, on="frame_id", how="inner")
+    return data
+
+def load_all_processed_data(paths, threshold=0.0):
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        data = executor.map(lambda f: load_processed_data(f, threshold=threshold), paths)
+    return pd.concat([d for d in data if d is not None], axis=0, ignore_index=True)
