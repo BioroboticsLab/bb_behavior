@@ -5,6 +5,7 @@ import numba
 import numpy as np
 import os.path
 import pandas as pd
+import warnings
 import zipfile
 
 from ..db import find_interactions_in_frame, get_frame_metadata, get_frames
@@ -150,6 +151,7 @@ def process_frame_with_prefilter(frame_info):
     return results
             
 def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm"):
+    import cloudpickle
     
     if progress is None:
         progress = lambda x=None, **kwargs: x
@@ -193,22 +195,33 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm
                 yield from progress(iter_frames_to_filter(cam_id, current_day_start, current_day_end), leave=False, desc="Frames")
 
             all_interaction_results = dict()
+            all_failed_keys = []
             result_progress = progress(leave=False, desc="Results")
             def save_data(results):
                 nonlocal all_interaction_results
+                nonlocal all_failed_keys
                 timestamp, frame_id, cam_id, core_data = results
-
-                all_interaction_results[(cam_id, timestamp, frame_id)] = core_data
+                if len(core_data) == 0:
+                    all_failed_keys.append(results[:-1])
+                else:
+                    all_interaction_results[(cam_id, timestamp, frame_id)] = core_data
+                result_progress.set_postfix(dict(failed_keys=len(all_failed_keys)))
                 result_progress.update()
 
             executor = ProcessPoolExecutor(max_workers=32)
             for result in executor.map(process_frame_with_prefilter, data_source()):
                 save_data(result)
 
+            if len(all_failed_keys) > 0:
+                with open(output_filename + ".failed.cloudpickle", "wb") as f:
+                    cloudpickle.dump(all_failed_keys, f)
+                warnings.warn("Found {} frame IDs without interaction data! Saved for debugging..")
+
             if len(all_interaction_results) == 0:
                 continue
 
             data_df = pd.concat(all_interaction_results.values())
+            assert (data_df.frame_id.dtype == np.uint64)
             data_df.frame_id = data_df.frame_id.astype(np.uint64)
             data_df.bee_id0 = data_df.bee_id0.astype(np.uint16)
             data_df.bee_id1 = data_df.bee_id1.astype(np.uint16)
