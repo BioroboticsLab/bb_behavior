@@ -122,7 +122,7 @@ def load_processed_data(f, warnings_as_errors=False):
     try:
         data = msgpack.load(f, max_array_len=2147483647)
     except Exception as e:
-        print("Error unpickling!")
+        print("Error unpickling {}!".format(str(f)))
         print(str(e))
         return None
 
@@ -215,7 +215,7 @@ def prefilter_data_for_timerange(dt_from, dt_to, target_dir=None, progress="tqdm
             if len(all_failed_keys) > 0:
                 with open(output_filename + ".failed.cloudpickle", "wb") as f:
                     cloudpickle.dump(all_failed_keys, f)
-                warnings.warn("Found {} frame IDs without interaction data! Saved for debugging..")
+                warnings.warn("Found {} frame IDs without interaction data! Saved for debugging..".format(len(all_failed_keys)))
 
             if len(all_interaction_results) == 0:
                 continue
