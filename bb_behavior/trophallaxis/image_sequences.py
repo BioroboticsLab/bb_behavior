@@ -137,7 +137,28 @@ def get_crops_for_bees(traj0, traj1, images):
     all_xy0, all_xy1, cropped_images = [], [], []
     
     for idx, (x, y, im) in enumerate(zip(xs, ys, images)):
-        sub_im = (255.0 * im[y:(y+s), x:(x+s)]).astype(np.uint8)
+        sub_im = np.zeros(shape=(s, s), dtype=np.uint8)
+        x_begin, y_begin = x, y
+        need_fill = False
+        if x_begin < 0:
+            x_begin = 0
+            need_fill = True
+        if y_begin < 0:
+            y_begin = 0
+            need_fill = True
+        x_end, y_end = x + s, y + s
+        if x_end > im.shape[1]:
+            x_end = im.shape[1]
+            need_fill = True
+        if y_end > im.shape[0]:
+            y_end = im.shape[0]
+            need_fill = True
+        if need_fill:
+            sub_im += int(np.mean(im) * 255.0)
+        to_end_x = sub_im.shape[1] - ((x + s) - x_end)
+        to_end_y = sub_im.shape[0] - ((y + s) - y_end)
+        sub_im[(y_begin - y):to_end_y, (x_begin - x):to_end_x] = \
+                255.0 * im[y_begin:y_end, x_begin:x_end]
         sub_im = skimage.exposure.equalize_adapthist(sub_im).astype(np.float32)
         xy0 = float(traj0[idx, 0] - x), float(traj0[idx, 1] - y), float(traj0[idx, 2])
         xy1 = float(traj1[idx, 0] - x), float(traj1[idx, 1] - y), float(traj1[idx, 2])
