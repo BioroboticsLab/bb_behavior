@@ -92,7 +92,8 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, frame_container_id=None, cur
     return sorted(results)
 
 def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cursor_is_prepared=False,
-                        n_frames_left=None, n_frames_right=None, seconds_left=None, seconds_right=None):
+                        n_frames_left=None, n_frames_right=None, seconds_left=None, seconds_right=None,
+                        s_frame_margin_leeway=2.0):
     """Retrieves a specified number of frames around a center frame from the database.
         
         Arguments:
@@ -105,6 +106,9 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
             n_frames_right: right margin; defaults to n_frames
             seconds_left: optional left margin in seconds; defaults to seconds
             seconds_right: optional right margin in seconds; defaults to seconds
+            s_frame_margin_leeway: float or None
+                If given, the initial query is done with a bit more leeway around the timestamps to allow
+                for larger temporal gaps between images, trying to get exactly n_frames neighbours.
         Returns:
             List containing tuples of (timestamp, frame_id, cam_id), which are sorted by timestamp.
     """
@@ -113,7 +117,9 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
     seconds = seconds or (n_frames / 3 if n_frames else 5.0)
     seconds_left = seconds_left or (seconds if n_frames_left is None else n_frames_left / 3)
     seconds_right = seconds_right or (seconds if n_frames_right is None else n_frames_right / 3)
-    
+    if s_frame_margin_leeway is None:
+        s_frame_margin_leeway = 0.0
+
     if frame_id is None:
         raise ValueError("frame_id must not be None.")
     else:
@@ -122,7 +128,7 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
         with base.get_database_connection(application_name="get_neighbour_frames") as db:
             return get_neighbour_frames(frame_id=frame_id, n_frames=n_frames, seconds=seconds, cursor=db.cursor(),
                                         n_frames_left=n_frames_left, n_frames_right=n_frames_right, seconds_left=seconds_left,
-                                        seconds_right=seconds_right)
+                                        seconds_right=seconds_right, s_frame_margin_leeway=s_frame_margin_leeway)
     
     f_index, frame_container_id, timestamp = None, None, None
     if not cursor_is_prepared:
@@ -132,7 +138,33 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
 
     results = cursor.fetchone()
     f_index, frame_container_id, timestamp = results
-    ts_from = timestamp - seconds_left
-    ts_to = timestamp + seconds_right
+    ts_from = timestamp - seconds_left - s_frame_margin_leeway
+    ts_to = timestamp + seconds_right + s_frame_margin_leeway
     
-    return get_frames(cam_id=None, ts_from=ts_from, ts_to=ts_to, cursor=cursor, cursor_is_prepared=cursor_is_prepared, frame_container_id=frame_container_id)
+    neighbour_frames = get_frames(cam_id=None, ts_from=ts_from, ts_to=ts_to, cursor=cursor, cursor_is_prepared=cursor_is_prepared, frame_container_id=frame_container_id)
+
+    if s_frame_margin_leeway > 0.0:
+        # We have potentially queried more frames and now need to filter them.
+        middle_frame_idx = None
+        for idx, (_, f_id, _) in enumerate(neighbour_frames):
+            if f_id != frame_id:
+                continue
+            middle_frame_idx = idx
+            break
+        if middle_frame_idx is None:
+            raise ValueError("frame_id {} not a neighbour of itself.".format(frame_id))
+        left = []
+        if middle_frame_idx < n_frames_left:
+            left = [(None, None, None)] * (n_frames_left - middle_frame_idx) + neighbour_frames[:(middle_frame_idx + 1)]
+        else:
+            left = neighbour_frames[(middle_frame_idx - n_frames_left):(middle_frame_idx + 1)]
+        right = []
+        n_neighbours = len(neighbour_frames)
+        n_right_neighbours = n_neighbours - middle_frame_idx
+        if n_right_neighbours < n_frames_right:
+            right = neighbour_frames[(middle_frame_idx + 1):] + [(None, None, None)] * (n_frames_right - n_right_neighbours + 1)
+        else:
+            right =  neighbour_frames[(middle_frame_idx + 1):(middle_frame_idx + n_frames_right + 1)]
+        neighbour_frames = left + right
+
+    return neighbour_frames
