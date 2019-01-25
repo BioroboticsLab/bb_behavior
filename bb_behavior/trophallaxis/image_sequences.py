@@ -61,7 +61,12 @@ def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_befor
             neighbour_frames = get_neighbour_frames_for_index(idx)
             
             frame_ids = [f[1] for f in neighbour_frames]
-            yield video_manager.get_frames(frame_ids, cursor=prepared_cursor, verbose=verbose), neighbour_frames
+            try:
+                yield video_manager.get_frames(frame_ids, cursor=prepared_cursor, verbose=verbose), neighbour_frames
+            except Exception as e:
+                print("VideoManager: error getting frames for container {}.".format(fc_id))
+                print(str(e))
+                yield None, None
 
 @numba.njit
 def get_affine_transform(xy0, xy1):
@@ -197,10 +202,16 @@ def get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=None,
     """
     all_results = []
     for bee_id0, bee_id1, label, event_id in df[["bee_id0", "bee_id1", "label", "event_id"]].itertuples(index=False):
+        cropped_images = None
         try:
             traj0, mask0 = get_interpolated_trajectory(int(bee_id0), frames=neighbour_frames, cursor=cursor, cursor_is_prepared=cursor is not None)
             traj1, mask1 = get_interpolated_trajectory(int(bee_id1), frames=neighbour_frames, cursor=cursor, cursor_is_prepared=cursor is not None)
-        
+
+            if mask0.sum() < mask0.shape[0] // 3:
+                raise ValueError("Bee {} has no data available around frame {}.".format(bee_id0, neighbour_frames[len(neighbour_frames) // 2][1]))
+            if mask1.sum() < mask1.shape[0] // 3:
+                raise ValueError("Bee {} has no data available around frame {}.".format(bee_id1, neighbour_frames[len(neighbour_frames) // 2][1]))
+
             local_traj0, local_traj1, cropped_images = get_crops_for_bees(traj0, traj1, images)
             
             all_results.append((dict(
@@ -211,8 +222,20 @@ def get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=None,
                     mask0=list(mask0.astype(float)), mask1=list(mask1.astype(float))
                 ), np.stack(cropped_images)))
         except Exception as e:
-            print("Error at {}_{}_{}_{}".format(event_id, frame_id, bee_id0, bee_id1))
+            print("Error at {}_{}_{}_{} - neighbour frames: {}".format(
+                event_id, frame_id, bee_id0, bee_id1, str([int(f[1]) for f in neighbour_frames])))
             print(str(e))
+            if verbose and cropped_images is not None:
+                import matplotlib.pyplot as plt
+                from IPython.display import display
+                display((mask0, mask1))
+                fig, axes = plt.subplots(1, len(cropped_images), figsize=(20, 5))
+                for ax, im in zip(axes, cropped_images):
+                    ax.imshow(im, cmap="gray")
+                    ax.set_title(str(im.shape))
+                    ax.set_axis_off()
+                plt.tight_layout()
+                plt.show()
         
     return all_results
 
@@ -260,6 +283,12 @@ def generate_image_sequence_data(dataframe, output_file, video_root, video_cache
         with zipfile.ZipFile(output_file, mode=mode, compression=zipfile.ZIP_DEFLATED) as zf:
 
             for (frame_id, df), (images, neighbour_frames) in iterable:
+                if images is None:
+                    continue
+                if frame_id != neighbour_frames[len(neighbour_frames) // 2][1]:
+                    print("Error extracting around frame_id {}".format(frame_id))
+                    print("Neighbours: {}".format(str([int(n[1]) for n in neighbour_frames])))
+                    raise ValueError("Wrong neighbour frames returned.")
                 results = get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=cursor, verbose=verbose)
 
                 for (metadata, images) in results:
@@ -278,6 +307,7 @@ def generate_image_sequence_data(dataframe, output_file, video_root, video_cache
                     if verbose:
                         import matplotlib.pyplot as plt
                         fig, axes = plt.subplots(1, len(images), figsize=(20, 5))
+                        print(filename)
                         for idx, (xy0, xy1, im) in enumerate(zip(metadata["local_traj0"], metadata["local_traj1"], images)):
                             ax = axes[idx]
                             ax.imshow(im, cmap="gray")
