@@ -201,6 +201,7 @@ class BeesbookVideoManager():
                                         cursor=cursor, cursor_is_prepared=cursor is not None)
             frame_indices = [meta[2] for meta in metadata]
             video_names = [meta[5] for meta in metadata]
+            assert frame_ids == [meta[0] for meta in metadata]
             self.extract_frames_from_metadata(frame_ids, frame_indices, video_names)
 
     def get_frames(self, frame_ids, cursor=None, verbose=False):
