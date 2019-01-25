@@ -87,7 +87,7 @@ def get_consistent_track_from_detections(frames, detections, verbose=False):
     """
     results = []
     for n_idx, (timestamp, frame_id, _) in enumerate(frames):
-        if len(detections) == 0:
+        if (len(detections) == 0) or (frame_id is None):
             results.append(None)
             continue
         if frame_id == detections[0][1]:
@@ -158,7 +158,7 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
             return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, cursor=db.cursor(), **kwargs)
     
     frames = frames or sampling.get_neighbour_frames(frame_id=frame_id, cursor=cursor, cursor_is_prepared=cursor_is_prepared, **kwargs)
-    frame_ids = [int(f[1]) for f in frames]
+    frame_ids = [int(f[1]) for f in frames if f[1] is not None]
     
     if not cursor_is_prepared:
         coords_string = "x_pos AS x, y_pos AS y, orientation"
