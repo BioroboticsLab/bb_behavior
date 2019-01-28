@@ -19,7 +19,7 @@ def plot_bees(bee_ids, colormap=None, frame_id=None, frame_margin = 26, frame_id
                                                        n_frames_left=n_frames_left,
                                                        n_frames_right=n_frames_right,)
         timestamps, frame_ids, cam_ids = zip(*frames)
-        cam_id = cam_ids[0]
+        cam_id = [c for c in cam_ids if c is not None][0]
     else:
         frames = [(None, fid, None) for fid in frame_ids]
         
@@ -42,7 +42,7 @@ def plot_bees(bee_ids, colormap=None, frame_id=None, frame_margin = 26, frame_id
                 xs = 3000 - xs
             if origin[1] == 1:
                 ys = 4000 - ys
-            bee_map_video_cords[bee_id] = np.array([xs, ys])
+            bee_map_video_cords[bee_id] = np.array([xs, ys]).T
         save_tracks(bee_map_video_cords, bt_export, timestamps=timestamps, frame_ids=frame_ids, meta=dict(cam_id=cam_id))
         
     
@@ -57,15 +57,7 @@ def plot_bees(bee_ids, colormap=None, frame_id=None, frame_margin = 26, frame_id
                 continue
             plot_label = (isinstance(plot_labels, set) and bee_id in plot_labels) or (plot_labels == True)
             plot_marker = (isinstance(plot_markers, set) and bee_id in plot_markers) or (plot_markers == True)
-            if plot_label:
-                labels.append(str(bee_id))
-            else:
-                labels.append(None)
-                
-            if plot_marker:
-                sizes.append(20)
-            else:
-                sizes.append(None)
+            
             
             if plot_marker or plot_label:
                 xs.append(int(x))
@@ -76,6 +68,16 @@ def plot_bees(bee_ids, colormap=None, frame_id=None, frame_margin = 26, frame_id
                     if bee_id in colormap:
                         color = colormap[bee_id]
                 colors.append(color)
+
+                if plot_label:
+                    labels.append(str(bee_id))
+                else:
+                    labels.append(None)
+                    
+                if plot_marker:
+                    sizes.append(20)
+                else:
+                    sizes.append(None)
         assert (len(xs) == len(ys))
         assert (len(xs) == len(labels))
         fp = FramePlotter(frame_id=int(frame_id),
