@@ -42,7 +42,7 @@ class DatabaseCursorContext(object):
         self._cursor.execute("PREPARE get_bee_detections AS "
            "SELECT timestamp, frame_id, x_pos AS x, y_pos AS y, orientation, track_id FROM bb_detections_2016_stitched "
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
-
+        
         self._cursor.execute("PREPARE get_bee_detections_hive_coords AS "
            "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM bb_detections_2016_stitched "
            "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
@@ -279,3 +279,65 @@ def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=
     if interpolate:
         mask = interpolate_trajectory(trajectory)
     return trajectory, mask
+
+def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consistent=True, interpolate=True):
+    """Retrieves the coherent, short track for a track ID that was produced by the tracking mapping.
+    The track can contain gaps and might not start at the beginning of the given frames.
+
+    Arguments:
+        track_id: uint64
+            Track ID that is fetched from the database.
+        frames: list(int) or list((timestamp, frame_id, cam_id))
+            Frames for which the track is fetched.
+        use_hive_coords: bool
+            Whether to return the trajectory in hive coordinates.
+        cursor: psycopg2.Cursor
+            Optional database connection.
+        make_consistent: bool
+            Whether the resulting trajectory is matched to the 'frames' list, possibly producing gaps.
+        interpolate: bool
+            Whether to interpolate the resulting trajectory.
+
+    Returns:
+        list(np.array(shape=(N, 3))), list(tuple(frame_id, detection_idx))
+            Yields the trajectory (x, y, orientation) and a list of frame_ids and detection indices
+            that can uniquely indentify a detection. The latter can contain None where no data is available.
+            The former will be interpolated, if set, but never extrapolated beyond the track boundaries.
+    """
+    if len(frames) == 0:
+        return []
+    if cursor is None:
+        with base.get_database_connection(application_name="get_track") as db:
+            return get_track(track_id, frames,
+                use_hive_coords=use_hive_coords, cursor=db.cursor())
+    coords = ("x_pos", "y_pos", "orientation")
+    if use_hive_coords:
+        coords = (c + "_hive" for c in coords)
+    
+    if type(frames[0]) is tuple: # (timestamp, frame_id, cam_id) style.
+        frame_ids = [f[1] for f in frames]
+    else:
+        frame_ids = frames
+        if make_consistent:
+            raise ValueError("get_track: make_consistent==True requires frames given as (timestamp, frame_id, cam_id) tuples.")
+    frame_ids = list(map(int, frame_ids))
+
+    cursor.execute(
+           "SELECT detection_idx, timestamp, frame_id, {} AS x, {} AS y, {} as orientation, track_id FROM bb_detections_2016_stitched "
+           "WHERE frame_id = ANY(%s) AND track_id = %s ORDER BY timestamp ASC".format(*coords), (frame_ids, track_id))
+    track = cursor.fetchall()
+    detection_keys = {t[2]: t[0] for t in track}
+    track = get_consistent_track_from_detections(frames, [t[1:] for t in track])
+
+    keys = []
+    for t in track:
+        if t is None:
+            keys.append(None)
+        else:
+            frame_id = t[1]
+            keys.append((int(frame_id), detection_keys[frame_id]))
+
+    track = get_bee_trajectory(bee_id=None, detections=track)
+    if interpolate:
+        interpolate_trajectory(track)
+    return track, keys
