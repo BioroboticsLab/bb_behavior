@@ -51,35 +51,49 @@ def save_tracks(track_map, filename, timestamps=None, frame_ids=None, track_name
     with open(filename, "w") as f:
         json.dump(trajectories, f)
 
-def load_tracks(tracks_filename):
+def load_tracks(tracks_filename, using_bee_ids=True):
+    """
+    Arguments:
+        tracks_filename: string
+            File path of the .json track data loaded/saved by the biotracker.
+
+    Returns:
+        track_map: dict(track_id=list(dict(object_name=string, x=string, y=string))))
+    """
     with open(tracks_filename) as f:
         tracking_data = json.load(f)
 
     track_map = dict()
     for key in tracking_data:
+        if key == "meta":
+            track_map["frame_ids"] = tracking_data["meta"]["frame_ids"]
+            track_map["timestamps"] = tracking_data["meta"]["timestamps"]
         if not key.startswith("Trajectory_"):
             continue
         trajectory = tracking_data[key]
-
-
+        available_frame_indices = list(sorted([int(e.split("_")[1]) for e in trajectory.keys() if e.startswith("Element_")]))
+        highest_valid_frame_number = available_frame_indices[-1]
+        
         trajectory_list = []
-        track_index = 0
         object_id = None
-        while True:
-            track_frame_name = "Element_{}".format(track_index)
-            track_index += 1
-            if not track_frame_name in trajectory:
-                break
-            track_frame = trajectory[track_frame_name]
+        for frame_index in range(highest_valid_frame_number + 1):
+            node_name = "Element_{}".format(frame_index)
+            x, y, object_name, valid = None, None, None, False
 
-            ID = int(track_frame["id"])
-            assert object_id is None or object_id == ID
-            object_id = ID
+            if node_name in trajectory:
+                valid = True
+                track_frame = trajectory[node_name]
 
-            object_name = track_frame["objectName"]
-            x, y = track_frame["x"], track_frame["y"]
-            trajectory_list.append(dict(object_name=object_name, x=x, y=y))
+                ID = int(track_frame["id"])
+                assert object_id is None or object_id == ID
+                object_id = ID
 
+                object_name = track_frame["objectName"]
+                x, y = track_frame["x"], track_frame["y"]
+
+            trajectory_list.append(dict(object_name=object_name, x=x, y=y, frame_index=frame_index, valid=valid))
+        if object_id is None:
+            continue
         assert object_id not in track_map
 
         track_map[object_id] = trajectory_list
@@ -94,31 +108,45 @@ def load_annotations(annotations_filename):
     for annotation in annotation_data:
         if not "origin_track_id" in annotation:
             continue
-        object_id0 = annotation["origin_track_id"]
+        track_id0 = annotation["origin_track_id"]
         start_frame = annotation["start_frame"]
         end_frame = annotation["end_frame"]
         
-        object_id1 = None
+        track_id1 = None
         if "end_track_id" in annotation:
-            object_id1 = annotation["end_track_id"]
+            track_id1 = annotation["end_track_id"]
 
         annotations_list.append(dict(
-            object_id0 = object_id0,
-            object_id1 = object_id1,
+            track_id0 = track_id0,
+            track_id1 = track_id1,
             comment = annotation["comment"],
             start_frame = start_frame,
             end_frame = end_frame
         ))
     return pd.DataFrame(annotations_list)
 
-def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotations_filename=None, cursor=None):
+def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotations_filename=None, cursor=None, object_name="bee_id"):
+    """
+    Arguments:
+        video_filename: string
+            Path to the video that was annotated using the biotracker.
+        tracks_filename: string
+            Optional. Path to JSON output of the biotracker. Defaults to the video name with json extension instead of mp4.
+        annotations_filename: string
+            Optional. Path to JSON annotation output of the biotracker. Defaults to the video name with annotations.json extension instead of mp4.
+        cursor: psycopg2.Cursor
+            Optional database cursor.
+        object_name: "bee_id" or "detection_idx"
+            Determines what the data constitutes of. frame_id and bee ID or frame_id and detection index.
+    """
     if cursor is None:
         with get_database_connection("biotracker_data") as db:
             cursor = db.cursor()
 
             cursor.execute("PREPARE get_timestamp AS SELECT timestamp FROM plotter_frame WHERE frame_id=$1")
+            cursor.execute("PREPARE get_bee_id_track_id AS SELECT bee_id, track_id FROM bb_detections_2016_stitched WHERE frame_id=$1 AND detection_idx=$2")
 
-            return load_annotated_bee_video(video_filename, tracks_filename, annotations_filename, cursor=cursor)
+            return load_annotated_bee_video(video_filename, tracks_filename, annotations_filename, cursor=cursor, object_name=object_name)
 
     def get_datetime_for_frame_id(frame_id):
         cursor.execute("EXECUTE get_timestamp (%s)", (frame_id, ))
@@ -126,34 +154,83 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
         dt = datetime.datetime.utcfromtimestamp(ts)
         return dt.replace(tzinfo=datetime.timezone.utc)
 
+    def get_bee_id_track_id_for_detection_idx(frame_id, detection_idx):
+        if detection_idx is None:
+            return None
+        cursor.execute("EXECUTE get_bee_id_track_id (%s, %s)", (frame_id, detection_idx))
+        bee_id, track_id = cursor.fetchone()[0:2]
+        return bee_id, track_id
+
+    has_detection_index_instead_of_id = object_name == "detection_idx"
+
     if tracks_filename is None:
         tracks_filename = video_filename[:-4] + ".json"
     if annotations_filename is None:
         annotations_filename = video_filename + ".annotations.json"
     
     track_map = load_tracks(tracks_filename)
+    all_frame_ids = track_map["frame_ids"]
     annotations_df = load_annotations(annotations_filename)
     
     additional_columns = []
     for i in range(annotations_df.shape[0]):
-        bee_id0 = annotations_df.object_id0.iloc[i]
+        track_id0 = annotations_df.track_id0.iloc[i]
+        track_id1 = annotations_df.track_id1.iloc[i]
         start_frame = annotations_df.start_frame.iloc[i]
         end_frame = annotations_df.end_frame.iloc[i]
-
-        start_frame_id = track_map[bee_id0][start_frame]["object_name"].split(" ")[0]
-        end_frame_id = track_map[bee_id0][end_frame]["object_name"].split(" ")[0]
+        if end_frame == 0:
+            end_frame = start_frame
+        # Find out valid frame id / detection idx close to the start of the interaction.
+        def get_first_valid_object_name(track, start_idx):
+            while True:
+                if start_idx < 0:
+                    break
+                object_name = track[start_idx]["object_name"]
+                if object_name == "None":
+                    start_idx -= 1
+                    continue
+                return object_name
+            return None
+            
+        start_frame_id, end_frame_id = all_frame_ids[start_frame], all_frame_ids[end_frame]
         start_datetime = get_datetime_for_frame_id(start_frame_id)
         end_datetime = get_datetime_for_frame_id(end_frame_id)
 
-        additional_columns.append(dict(
+        object_names = [get_first_valid_object_name(track_map[track_id0], start_frame), None]
+        if track_id1 is not None:
+            object_names[1] = get_first_valid_object_name(track_map[track_id1], start_frame)
+
+        bee_ids = None, None
+        track_ids = None, None
+        if has_detection_index_instead_of_id:
+            def object_name_to_bee_id_track_id(object_name):
+                if object_name is None:
+                    return (None, None)
+                frame_id, detection_idx = object_name.split(" ")
+                return get_bee_id_track_id_for_detection_idx(int(frame_id), int(detection_idx))
+            bee_ids_track_ids = list(map(object_name_to_bee_id_track_id, object_names))
+            bee_ids, track_ids = zip(*bee_ids_track_ids)
+        else:
+            bee_ids = [int(object_names[0]), None]
+            if object_names[0] is not None:
+                bee_ids[1] = int(object_names[1])
+
+        annotation_data = dict(
+            start_frame=start_frame,
+            end_frame=end_frame,
+            comment=annotations_df.comment.iloc[i],
             start_frame_id=start_frame_id,
             end_frame_id=end_frame_id,
             start_datetime=start_datetime,
             end_datetime=end_datetime,
             start_timestamp=start_datetime.timestamp(),
-            end_timestamp=end_datetime.timestamp()))
-    additional_columns = pd.DataFrame(additional_columns)
-    annotations_df = pd.concat((annotations_df, additional_columns), axis=1)
-    annotations_df.rename(columns=dict(object_id0="bee_id0", object_id1="bee_id1"), inplace=True)
-    
+            end_timestamp=end_datetime.timestamp(),
+            bee_id0=bee_ids[0],
+            bee_id1=bee_ids[1],
+            track_id0=track_ids[0],
+            track_id1=track_ids[1],
+            )
+
+        additional_columns.append(annotation_data)
+    annotations_df = pd.DataFrame(additional_columns)
     return annotations_df
