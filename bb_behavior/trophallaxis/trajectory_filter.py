@@ -82,7 +82,7 @@ def load_features(data):
 def to_output_filename(path):
     return path.replace("prefilter", "trajfilter").replace("msgpack", "zip")
 
-def process_preprocessed_data(progress="tqdm", use_cuda=True):
+def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes=16, n_prediction_threads=3):
     class ThreadCtx():
         def __enter__(self):
             return dict()
@@ -176,12 +176,12 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True):
         def generate_chunks():
             yield from utils.iterate_minibatches(filepath_data, targets=None, batchsize=batchsize) 
         def generate_chunked_features():
-            executor = concurrent.futures.ProcessPoolExecutor(max_workers=16)
+            executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_loader_processes)
             chunks = executor.map(load_features, generate_chunks())
             yield from chunks
         
         pipeline = utils.ParallelPipeline([generate_chunked_features, predict, save_chunk_results],
-                                                      n_thread_map={1:3}, thread_context_factory=lambda: ThreadCtx())
+                                                      n_thread_map={1:n_prediction_threads}, thread_context_factory=lambda: ThreadCtx())
         n_features_loaded = 0
         pipeline()
         if chunk_range is not None:
