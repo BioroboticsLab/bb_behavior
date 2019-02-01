@@ -47,8 +47,9 @@ def plot_bees(bee_ids=None, track_ids=None, colormap=None, frame_id=None, frame_
             def get_node_name(node):
                 if node is None:
                     return "None"
-                return "_".join(map(str, node))
-            bee_map[track_idx] = list(map(get_node_name, keys)), traj
+                return " ".join(map(str, node))
+            # Make sure the index starts at 1, just to be sure.
+            bee_map[track_idx + 1] = list(map(get_node_name, keys)), traj
 
             # Todo, at this point we would need to re-map the colormap, plot_labels, etc. args.
     else:
