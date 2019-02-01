@@ -1,4 +1,5 @@
 import json
+import math
 import numpy as np
 import pandas as pd
 from ..db.base import get_database_connection
@@ -29,7 +30,12 @@ def save_tracks(track_map, filename, timestamps=None, frame_ids=None, track_name
             if np.isnan(x):
                 continue
             node = dict(valid="true", id=str(track_id), coordinateUnit="px",
-                       x=str(x), y=str(y), time="0", timeString="")
+                       x="{:1.3f}".format(x), y="{:1.3f}".format(y), time="0", timeString="")
+            if len(frame_xy) > 2:
+                rad = frame_xy[2]
+                deg = math.degrees(rad)
+                node["rad"] = "{:1.3f}".format(rad)
+                node["deg"] = "{:1.3f}".format(deg)
             if timestamps is not None:
                 node["time"] = str(timestamps[node_idx])
                 node["timeString"] = str(datetime.datetime.utcfromtimestamp(timestamps[node_idx]))
