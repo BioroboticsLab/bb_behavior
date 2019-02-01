@@ -28,11 +28,11 @@ def plot_bees(bee_ids=None, track_ids=None, colormap=None, frame_id=None, frame_
     if bee_ids is not None:
         for bee_id in bee_ids:
             traj, _ = get_interpolated_trajectory(int(bee_id), frames=frames)
-            bee_map[bee_id] = traj[:, :2]
+            bee_map[bee_id] = traj[:, :3]
     elif track_ids is not None:
         for track_idx, track_id in enumerate(track_ids):
             traj, keys = get_track(track_id, frames=frames, use_hive_coords=False)
-            traj = traj[:, :2]
+            traj = traj[:, :3]
             # We use the interpolated trajectory but cut off at beginning and end.
             valid_values = [i for i in range(len(keys)) if keys[i] is not None]
             if len(valid_values) == 0:
@@ -62,16 +62,23 @@ def plot_bees(bee_ids=None, track_ids=None, colormap=None, frame_id=None, frame_
             node_names = None
             if type(xy) is tuple:
                 node_names, xy = xy
+            invalid_coordinates = np.isnan(xy[:, 0])
+            rad = xy[:, 2]
             xy = xy.astype(int)
             
             xs, ys = bb_backend.api.get_plot_coordinates(xy[:,0], xy[:,1])
+            radsin, radcos = np.sin(rad), np.cos(rad)
+            radsin, radcos = bb_backend.api.get_plot_coordinates(radsin, radcos)
             origin = bb_backend.api.get_image_origin(cam_id, year=2016)
             
             if origin[0] == 1:
                 xs = 3000 - xs
+                radcos = 1.0 - radcos
             if origin[1] == 1:
                 ys = 4000 - ys
-            data = np.array([xs, ys]).T
+                radsin = 1.0 - radsin
+            data = np.array([xs, ys, np.arctan2(radcos, radsin)]).T
+            data[invalid_coordinates, :] = np.nan
             if node_names is not None:
                 data = node_names, data
             bee_map_video_cords[bee_id] = data
