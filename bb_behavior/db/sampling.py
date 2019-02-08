@@ -115,6 +115,30 @@ def get_track_ids(frames, cursor=None):
     track_ids = [int(t[0]) for t in track_ids]
     return track_ids
 
+def get_bee_ids(frames, cursor=None):
+    """Retrieves all unique bee IDS from the database that occur in a given set of frame_ids.
+    Arguments:
+        frames: list(int) or list(tuple(timestamp, frame_id, cam_id))
+            Frames for which the track IDs are fetched.
+        cursor: psycopg2.Cursor
+            Optional database connection cursor.
+    Returns:
+        list(int)
+            List containing the bee IDs.
+    """
+    if cursor is None:
+        with base.get_database_connection(application_name="get_bee_ids") as db:
+            return get_bee_ids(frames, cursor=db.cursor())
+    if len(frames) == 0:
+        return []
+    if type(frames[0]) is tuple: # (timestamp, frame_id, cam_id) style
+        frames = [f[1] for f in frames]
+    frames = [int(f) for f in frames]
+    cursor.execute("SELECT DISTINCT bee_id FROM bb_detections_2016_stitched WHERE frame_id = ANY(%s)", (frames,))
+    track_ids = cursor.fetchall()
+    track_ids = [int(t[0]) for t in track_ids]
+    return track_ids
+
 def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cursor_is_prepared=False,
                         n_frames_left=None, n_frames_right=None, seconds_left=None, seconds_right=None,
                         s_frame_margin_leeway=2.0):
