@@ -86,7 +86,7 @@ def get_available_processed_days(base_path=None):
     if base_path is None:
         base_path = "/mnt/storage/david/cache/beesbook/trophallaxis"
     available_files = set()
-    for ext in ("cloudpickle", "zip"):
+    for ext in ("zip", ):
         available_files |= set(glob.glob(base_path + "/prefilter.*." + ext))
     
     available_files = list(sorted(list(available_files)))
