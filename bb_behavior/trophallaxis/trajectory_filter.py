@@ -186,7 +186,9 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
         pipeline()
         if chunk_range is not None:
             chunk_range.close()
-        
+        if len(chunk_results) == 0:
+            print("No results for {}".format(filepath))
+            continue
         results_df = pd.concat(chunk_results, axis=0)
         
         df = filepath_data.merge(results_df, how="left", on=("frame_id", "bee_id0", "bee_id1"))
