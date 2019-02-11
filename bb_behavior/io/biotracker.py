@@ -197,19 +197,20 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
         end_datetime = get_datetime_for_frame_id(end_frame_id)
 
         object_names = [get_first_valid_object_name(track_map[track_id0], start_frame), None]
-        if track_id1 is not None:
+        if not pd.isnull(track_id1):
             object_names[1] = get_first_valid_object_name(track_map[track_id1], start_frame)
 
         bee_ids = None, None
         track_ids = None, None
+        detection_indices = None, None
         if has_detection_index_instead_of_id:
             def object_name_to_bee_id_track_id(object_name):
                 if object_name is None:
-                    return (None, None)
+                    return (None, None, None)
                 frame_id, detection_idx = object_name.split(" ")
-                return get_bee_id_track_id_for_detection_idx(int(frame_id), int(detection_idx))
+                return get_bee_id_track_id_for_detection_idx(int(frame_id), int(detection_idx)) + (int(detection_idx), )
             bee_ids_track_ids = list(map(object_name_to_bee_id_track_id, object_names))
-            bee_ids, track_ids = zip(*bee_ids_track_ids)
+            bee_ids, track_ids, detection_indices = zip(*bee_ids_track_ids)
         else:
             bee_ids = [int(object_names[0]), None]
             if object_names[0] is not None:
@@ -230,7 +231,8 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
             track_id0=track_ids[0],
             track_id1=track_ids[1],
             )
-
+        if detection_indices[0] is not None:
+            annotation_data["detection_idx0"], annotation_data["detection_idx1"] = detection_indices
         additional_columns.append(annotation_data)
     annotations_df = pd.DataFrame(additional_columns)
     return annotations_df
