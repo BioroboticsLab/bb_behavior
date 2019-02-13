@@ -224,3 +224,41 @@ def find_close_points(XY, max_distance, min_distance, distance_func=None, return
         pairs = (pairs, distances)
     return pairs
 
+def prefetch_map(fun, iterable, max_workers=4, n_prefetched_results=None):
+    """Behaves similarly to map() but usings multiprocessing to pre-fetch results.
+    Unlike a MultiprocessingPool.map, this function limits the number of prefetched results.
+
+    Arguments:
+        fun: callable
+            Function that is applied to every element in 'iterator'.
+        iterable: Iterator
+        max_workers: int
+            Number of processes to spawn.
+        n_prefetched_results: int
+            Optional. Max number of elements in the queue.
+    Returns:
+        map(fun, iterable)
+    """
+    from collections import deque
+    import concurrent.futures
+
+    n_prefetched_results = n_prefetched_results or (2 * max_workers + 1)
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        done = False
+        futures = deque()
+        try:
+            for _ in range(2*n_prefetched_results):
+                futures.append(executor.submit(fun, next(iterable)))
+        except StopIteration:
+            done = True
+
+        while len(futures) > 0:
+            next_future_result = futures.popleft().result()
+            yield next_future_result
+
+            if not done:
+                try:
+                    futures.append(executor.submit(fun, next(iterable)))
+                except StopIteration:
+                    done = True
