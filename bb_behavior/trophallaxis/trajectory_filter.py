@@ -63,20 +63,16 @@ feature_procs = [trajectory.FeatureTransform.Normalizer(downscale_by=10.0),
 
 def load_features(data):
     import bb_behavior.trajectory
-    #nonlocal n_features_loaded
-    #nonlocal n_failed_chunks
     datareader = bb_behavior.trajectory.DataReader(dataframe=data, sample_count=None, target_column=None,
                                               feature_procs=feature_procs, n_threads=2, progress=None, frame_margin=7,
                                               use_hive_coords=True, chunk_frame_id_queries=True, verbose=False)
     try:
         datareader.create_features()
     except Exception as e:
-        #n_failed_chunks += 1
         from IPython.display import display
         display(data)
         print("Chunk failed with {}".format(str(e)))
         return None
-    #n_features_loaded += 1
     return datareader.X, datareader.samples, datareader._valid_sample_indices
 
 def to_output_filename(path):
@@ -118,7 +114,6 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
             yield filepath, data
     
     n_features_loaded = 0
-    n_failed_chunks = 0
     
     def predict(X, samples, valid_sample_indices, thread_context, **kwargs):
         if not "model" in thread_context:
@@ -165,20 +160,13 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
                     chunk_range = progress_bar_fun(total=n_chunks - 1, desc="Chunks")
                 else:
                     chunk_range.update()
-                
-                chunk_range.set_postfix(chunk_results_size="{:01d}".format(results.shape[0]),
-                                        chunk_size="{:01d}".format(batchsize),
-                                    chunks_loaded="{:01d}".format(n_features_loaded),
-                                    chunks_failed="{:01d}".format(n_failed_chunks))
             chunk_results.append(results)
         
          
         def generate_chunks():
             yield from utils.iterate_minibatches(filepath_data, targets=None, batchsize=batchsize) 
         def generate_chunked_features():
-            executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_loader_processes)
-            chunks = executor.map(load_features, generate_chunks())
-            yield from chunks
+            yield from utils.prefetch_map(load_features, generate_chunks(), max_workers=n_loader_processes)
         
         pipeline = utils.ParallelPipeline([generate_chunked_features, predict, save_chunk_results],
                                                       n_thread_map={1:n_prediction_threads}, thread_context_factory=lambda: ThreadCtx())
