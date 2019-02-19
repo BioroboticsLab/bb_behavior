@@ -10,9 +10,10 @@ class ParallelPipeline(object):
     jobs = None
     done = 0
     
-    def __init__(self, jobs = [], n_thread_map = {}, thread_context_factory=None):
+    def __init__(self, jobs = [], n_thread_map = {}, queue_size_map = {}, thread_context_factory=None):
         self.jobs = jobs
         self.n_thread_map = n_thread_map
+        self.queue_size_map = queue_size_map
         self.use_threads = True
         self.thread_context_factory = thread_context_factory
         
@@ -81,7 +82,10 @@ class ParallelPipeline(object):
             if i == len(self.jobs) - 1: # last job? allow full output
                 outqueue = queue_style()
             else:
-                queue_size = max(2 * cnt, 16)
+                if i in self.queue_size_map:
+                    queue_size = self.queue_size_map[i]
+                else:
+                    queue_size = max(2 * cnt, 16)
                 outqueue = queue_style(queue_size)
             self.queues.append(outqueue)
 
