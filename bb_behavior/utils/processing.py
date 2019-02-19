@@ -136,7 +136,7 @@ class FunctionCacher():
                 Whether to use a threading Queue instead of a multiprocessing Queue.
 
         """
-        self.queue_type = queue.Queue() if use_threads else multiprocessing.Queue
+        self.queue_type = queue.Queue if use_threads else multiprocessing.Queue
         self.fun = fun
         self.available = self.queue_type()
         self.all = []
