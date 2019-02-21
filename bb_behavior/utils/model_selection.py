@@ -9,7 +9,10 @@ def iterate_minibatches(inputs, targets, batchsize, N=None, shuffle=False):
     if N is None:
         N = inputs.shape[0]
     if targets is not None:
-        assert inputs.shape[0] == targets.shape[0]
+        if hasattr(inputs, "shape"):
+            assert inputs.shape[0] == targets.shape[0]
+        elif hasattr(inputs, "__len__"):
+            assert len(inputs) == len(targets)
     if shuffle:
         indices = np.arange(N)
         np.random.shuffle(indices)
