@@ -78,10 +78,19 @@ def load_features(data):
 def to_output_filename(path):
     return path.replace("prefilter", "trajfilter").replace("msgpack", "zip")
 
-def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes=16, n_prediction_threads=3):
+def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes=16, n_prediction_threads=3, batchsize=1000):
+    def make_model():
+        torch_kwargs = dict()
+        if not use_cuda:
+            torch_kwargs["map_location"] = torch.device("cpu")
+        model = torch.load("/mnt/storage/david/cache/beesbook/trophallaxis/1dcnn.cache", **torch_kwargs)
+        if not use_cuda:
+            model.use_cuda = False
+        return model
+    model_cache = utils.processing.FunctionCacher(make_model, n=n_prediction_threads)
     class ThreadCtx():
         def __enter__(self):
-            return dict()
+            return dict(model_factory=model_cache)
         def __exit__(self, *args):
             pass
     progress_bar_fun = lambda x, **kwargs: x
@@ -117,16 +126,10 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
     
     def predict(X, samples, valid_sample_indices, thread_context, **kwargs):
         if not "model" in thread_context:
-            torch_kwargs = dict()
-            if not use_cuda:
-                torch_kwargs["map_location"] = torch.device("cpu")
-            thread_context["model"] = torch.load("/mnt/storage/david/cache/beesbook/trophallaxis/1dcnn.cache", **torch_kwargs)
-            if not use_cuda:
-                thread_context["model"].use_cuda = False
+            thread_context["model"] = thread_context["model_factory"]()
         model = thread_context["model"]
         Y = model.predict_proba(X)[:, 1]
         results = []
-        #samples = datareader.samples
         for idx in range(Y.shape[0]):
             y = Y[idx]
             sample_idx = valid_sample_indices[idx]
@@ -144,10 +147,7 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
         if progress is not None:
             trange.set_postfix(classified_samples=total_output)
         
-        batchsize = 2000
         n_chunks = (filepath_data.shape[0] // batchsize) + 1
-        
-        
         
         chunk_results = []
         chunk_range = None
@@ -161,16 +161,17 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
                 else:
                     chunk_range.update()
             chunk_results.append(results)
-        
          
         def generate_chunks():
             yield from utils.iterate_minibatches(filepath_data, targets=None, batchsize=batchsize) 
         def generate_chunked_features():
-            yield from utils.prefetch_map(load_features, generate_chunks(), max_workers=n_loader_processes)
+            yield from utils.prefetch_map(load_features, generate_chunks(), max_workers=n_loader_processes, n_prefetched_results=n_loader_processes)
         
         pipeline = utils.ParallelPipeline([generate_chunked_features, predict, save_chunk_results],
-                                                      n_thread_map={1:n_prediction_threads}, thread_context_factory=lambda: ThreadCtx())
+                                                      n_thread_map={1:n_prediction_threads}, thread_context_factory=lambda: ThreadCtx(),
+                                                      queue_size_map={0: 2})
         n_features_loaded = 0
+        model_cache.reset()
         pipeline()
         if chunk_range is not None:
             chunk_range.close()
@@ -193,6 +194,11 @@ def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes
         with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zf:
                 with zf.open(output_filename.split("/")[-1].replace("zip", "msgpack"), "w") as file:
                     msgpack.dump(raw_df, file, use_bin_type=True)
+
+        del chunk_results
+        del results_df
+        del df
+        del raw_df
 
 def get_available_processed_days(base_path=None):
     """Loads the available processed trajectory data chunks' metadata and returns them as a data frame.
