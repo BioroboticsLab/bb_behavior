@@ -12,10 +12,10 @@ from ..db import find_interactions_in_frame, get_frame_metadata, get_frames
 
 @numba.njit
 def calculate_head_distance(xy0, xy1):
-    head0 = xy0[:2]
+    head0 = np.array([xy0[0], xy0[1]])
     head0[0] += 3.19 * np.cos(xy0[2])
     head0[1] += 3.19 * np.sin(xy0[2])
-    head1 = xy1[:2]
+    head1 = np.array([xy1[0], xy1[1]])
     head1[0] += 3.19 * np.cos(xy1[2])
     head1[1] += 3.19 * np.sin(xy1[2])
     
@@ -33,7 +33,6 @@ def calculate_angle_dot_distance(r0, r1):
     
 @numba.njit
 def probability_distance_fun_(xy0, xy1, beta0, beta1, beta2, bias, hard_min, hard_max):
-
     distance = np.linalg.norm(xy0[:2] - xy1[:2])
     if distance <= hard_min or distance >= hard_max:
         return 0.0
