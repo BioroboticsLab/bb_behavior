@@ -268,7 +268,7 @@ class DataReader(object):
         # the data contains many events from the same (or neighboured) frame ids.
         def iter_samples_chunk_frames():
             # Allow some leeway in the frame timestamps - make sure that we have the correct number later.
-            margin_in_seconds = (2 + self._frame_margin) / 3
+            margin_in_seconds = (3 + self._frame_margin) / 3
             all_frame_ids = set(self.samples.frame_id.values)
 
             with db.DatabaseCursorContext(application_name="Batch frame ids") as cursor:
