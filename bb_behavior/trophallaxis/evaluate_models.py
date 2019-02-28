@@ -30,7 +30,7 @@ def load_test_set(root_path=None):
     all_annotations = pd.concat(all_annotations, axis=0)
     trophallaxis_annotations = all_annotations[all_annotations.comment.str.contains("trophallaxis")]
     trophallaxis_annotations = trophallaxis_annotations[~pd.isnull(trophallaxis_annotations.bee_id1)]
-    gt_data = trophallaxis_annotations[["frame_id", "bee_id0", "bee_id1"]]
+    gt_data = trophallaxis_annotations[["frame_id", "bee_id0", "bee_id1"]].copy()
     gt_data.frame_id = gt_data.frame_id.astype(np.uint64)
     gt_data.bee_id0 = gt_data.bee_id0.astype(np.uint16)
     gt_data.bee_id1 = gt_data.bee_id1.astype(np.uint16)
