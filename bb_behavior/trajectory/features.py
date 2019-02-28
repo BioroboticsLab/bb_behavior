@@ -36,13 +36,12 @@ def trajectories_to_features(trajectories, feature_transformer):
         ft(trajectories)
     if len(trajectories[0].shape) < 2:
         raise ValueError("Feature transformer must return an array with at least two dimensions with the first being of size 1 and the second being the features.")
+    n_trajectories = len(trajectories)
     trajectories = np.concatenate(trajectories, axis=1)
+    
     features = feature_transformer[-1].get_output()
-    if trajectories.shape[1] < len(features):
-        raise ValueError("Feature transformers declared {} output features ({}) but produced {}.".format(len(features), features, trajectories.shape[1]))
-    elif trajectories.shape[1] > len(features):
-        trajectories = trajectories[:, :len(features), :]
-
+    if (trajectories.shape[1] != n_trajectories * len(features)):
+        raise ValueError("Feature transformers declared {}x{} output features ({}) but produced {}.".format(n_trajectories, len(features), features, trajectories.shape[1]))
     return trajectories
 
 class FeatureTransform(object):
@@ -274,7 +273,7 @@ class DataReader(object):
             with db.DatabaseCursorContext(application_name="Batch frame ids") as cursor:
                 frame_metadata = db.get_frame_metadata(frames=all_frame_ids, cursor=cursor, cursor_is_prepared=True)
                 # First, fetch all the required neighbouring frames.
-                for frame_id, cam_id, timestamp in frame_metadata[["frame_id", "cam_id", "timestamp"]].itertuples(index=False):
+                for frame_id, cam_id, timestamp in self._tqdm(frame_metadata[["frame_id", "cam_id", "timestamp"]].itertuples(index=False), total=frame_metadata.shape[0]):
                     ts_from, ts_to = timestamp - margin_in_seconds, timestamp + margin_in_seconds
                     neighbour_frames = db.get_frames(cam_id, ts_from, ts_to, cursor=cursor, cursor_is_prepared=True)
                     # We have potentially requested a bit more frames than we need. Filter.
