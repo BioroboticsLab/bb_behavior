@@ -248,7 +248,7 @@ class CNN1D(torch.nn.Module):
 
                 # print statistics
                 running_loss += loss.data.abs().sum()
-                if progress is not None and (minibatch_idx % loss_step == (loss_step - 1)):
+                if progress is not None and (minibatch_idx % loss_step == 0):
                     epoch_iterator.set_postfix({"Batch Size": "{:5d}".format(current_batch_size),
                                             "Test Score": test_score,
                                             "Test Score (Best)": best_score,
