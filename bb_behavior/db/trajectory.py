@@ -204,7 +204,8 @@ def get_bee_trajectory(bee_id, frame_id=None, frames=None, detections=None, **kw
         Returns:
             numpy array (float 32) of shape (N, 3)
     """
-    detections = detections or get_bee_detections(bee_id, frame_id=frame_id, frames=frames, **kwargs)
+    if detections is None:
+        detections = get_bee_detections(bee_id, frame_id=frame_id, frames=frames, **kwargs)
     # (dt, frame_id, x, y, alpha)
     def unpack(d):
         if d is None:
