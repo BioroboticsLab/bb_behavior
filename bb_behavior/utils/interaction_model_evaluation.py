@@ -41,7 +41,7 @@ def evaluate_interaction_model(model_fun, frame_ids, gt_df, label="Model Evaluat
                 frame_results = set(order_bee_ids(*p) for p in frame_results[["bee_id0", "bee_id1"]].itertuples(index=False))
             except:
                 frame_results = set()
-                print("Warning: Frame results emtpy. (Frame {})".format(frame_id))
+                print("Warning: Frame results empty. (Frame {})".format(frame_id))
             
             # Total interactions.
             interactions = find_interactions_in_frame(frame_id, max_distance=40.0,
