@@ -103,7 +103,6 @@ def get_default_pipeline(localizer_threshold=None, verbose=False):
     
     outputs = [pipeline.objects.PipelineResult]
     if verbose:
-        import pipeline.objects.CrownOverlay
         outputs += [pipeline.objects.CrownOverlay]
     conf = pipeline.pipeline.get_auto_config()
     if localizer_threshold is not None:
@@ -228,7 +227,10 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
         #decimal_ids = set([ids.BeesbookID.from_bb_binary(i).as_ferwar() for i in confident_ids])
 
         if verbose:
-            crowns = pipeline_results[CrownOverlay]
+            import pipeline.objects
+            from pipeline.stages.visualization import ResultCrownVisualizer
+            import matplotlib.pyplot as plt
+            crowns = pipeline_results[pipeline.objects.CrownOverlay]
             frame = ResultCrownVisualizer.add_overlay(im.astype(np.float64) / 255, crowns)
             fig, ax = plt.subplots(figsize=(20, 10))
             plt.imshow(frame)
@@ -254,6 +256,8 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
                 "frameIdx": [idx] * n_detections
             }
             
+            frame_data = pd.DataFrame(frame_data)
+
             if calculate_confidences:
                 confidences = np.array([np.product(np.abs(0.5 - np.array(r)) * 2) for r in decoded_ids])
                 frame_data["confidence"] = confidences
@@ -279,7 +283,7 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
         nonlocal video_dataframe
         frame_info.append((idx, frame_id, ts))
         if frame_data is not None:
-            video_dataframe.append(pd.DataFrame(frame_data))
+            video_dataframe.append(frame_data)
         progress_bar.update()
         
     source = get_frames_from_video
