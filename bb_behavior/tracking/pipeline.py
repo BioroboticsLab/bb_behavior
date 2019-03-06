@@ -107,12 +107,12 @@ def get_default_pipeline(localizer_threshold=None, verbose=False):
     conf = pipeline.pipeline.get_auto_config()
     if localizer_threshold is not None:
         conf['Localizer']['threshold'] = localizer_threshold
-    pipeline = pipeline.Pipeline([pipeline.objects.Image],  # inputs
+    decoder_pipeline = pipeline.Pipeline([pipeline.objects.Image],  # inputs
                         outputs,  # outputs
                         **conf)
-    return pipeline
+    return decoder_pipeline
 
-def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipeline_factory=None,
+def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=None, pipeline_factory=None,
                             tag_pixel_diameter=50.0, timestamps=None,
                             start_timestamp=None, fps=3.0, cam_id=0,
                             verbose=False, n_frames=None, progress="tqdm",
@@ -126,11 +126,11 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
             Path to video file or list of paths to images.
         source_type: ("auto", "video", "image")
             Type of media file behind 'source_path'.
-        pipeline: bb_pipeline.pipeline.Pipeline
+        decoder_pipeline: pipeline.Pipeline
             Instantiated pipeline object used for localizing and decoding tags.
             Can be None.
         pipeline_factory: callable
-            Used with pipeline=None. Function that returns a unique object suitable for the 'pipeline' argument.
+            Used with decoder_pipeline=None. Function that returns a unique object suitable for the 'decoder_pipeline' argument.
             If given, the tag detection will be multithreaded with one pipeline object per threads.
         tag_pixel_diameter: float
             Diameter of the outer border of a flat BeesBook tag in the image (in pixels).
@@ -169,8 +169,8 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
             source_type = "image"
     calculate_confidences = calculate_confidences or confidence_filter is not None
     scale = 50.0 / tag_pixel_diameter
-    if pipeline is None and pipeline_factory is None:
-        pipeline = get_default_pipeline()
+    if decoder_pipeline is None and pipeline_factory is None:
+        decoder_pipeline = get_default_pipeline()
 
     if timestamps is None:
         def generate_timestamps(start_from):
@@ -215,9 +215,9 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
                 break
     
     def get_detections_from_frame(idx, ts, im, thread_context=None, **kwargs):
-        nonlocal pipeline
-        if pipeline is not None:
-            pipeline_results = pipeline([im])
+        nonlocal decoder_pipeline
+        if decoder_pipeline is not None:
+            pipeline_results = decoder_pipeline([im])
         else:
             if "pipeline" not in thread_context:
                 thread_context["pipeline"] = pipeline_factory()
@@ -295,7 +295,7 @@ def detect_markers_in_video(source_path, source_type="auto", pipeline=None, pipe
     if use_parallel_jobs:
         thread_context_factory = None
         n_pipeline_jobs = 1
-        if not pipeline:
+        if not decoder_pipeline:
             # The thread context is used to provide each thread with a unique pipeline object.
             class Ctx():
                 def __enter__(self):
