@@ -63,11 +63,12 @@ def execute_job(job_filename, use_cuda, trajectory_model_path, max_workers, min_
         return
     temp_filename = job_filename + ".temp"
     os.rename(job_filename, temp_filename)
-    with open(temp_filename , "rb") as f:
-        job = pickle.load(f)
-
-    cam_id, start, end = job["cam_id"], job["start"], job["end"]
+    
     try:
+        with open(temp_filename , "rb") as f:
+            job = pickle.load(f)
+        cam_id, start, end = job["cam_id"], job["start"], job["end"]
+
         # Load trajectory model.
         model = trajectory_filter.load_model(trajectory_model_path, use_cuda=use_cuda)
         
