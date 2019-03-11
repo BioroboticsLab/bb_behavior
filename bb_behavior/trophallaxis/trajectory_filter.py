@@ -4,6 +4,7 @@ import numba
 import numpy as np
 import pandas as pd
 import prefetch_generator
+import scipy.signal
 import concurrent.futures
 import torch
 import tqdm
@@ -21,17 +22,18 @@ def traj2cossin(traj):
     return traj[0, 2:4, :][::-1, :]
 @numba.jit
 def traj2headpos(traj):
-    headpos = traj[0, 0:2, :] + 0.319 * traj2cossin(traj)
+    cossin = traj2cossin(traj)
+    headpos = np.array([traj[0, 0, :] + 0.319 * cossin[0],
+                        traj[0, 1, :] + 0.319 * cossin[1]])
     return headpos
 
-#@numba.jit
 def pairwise_measures(trajectories):
     diffs = list()
     min_angle = 0.0
     
-    trajectories[0] = np.concatenate((trajectories[0], np.zeros(shape=(1, 1, trajectories[0].shape[2]), dtype=np.float32)), axis=1).astype(np.float32)
+    trajectories[0] = np.concatenate((trajectories[0], np.zeros(shape=(1, 3, trajectories[0].shape[2]), dtype=np.float32)), axis=1).astype(np.float32)
     traj0 = trajectories[0]
-
+    
     head0 = traj2headpos(traj0)
     
     for idx, traj in enumerate(trajectories):
@@ -39,6 +41,8 @@ def pairwise_measures(trajectories):
             continue
         
         dist = np.linalg.norm(traj[0, 0:2, :] - traj0[0, 0:2, :], axis=0)
+        motion_difference = np.zeros(shape=(1, 1, traj.shape[2]), dtype=np.float32)
+        motion_difference[:, :, 1:] = np.linalg.norm(np.diff(traj[0, 0:2, :], axis=1) - np.diff(traj0[0, 0:2, :], axis=1), axis=0)
         head = traj2headpos(traj)
         diffs = [head0 - traj[0, 0:2, :], head - traj0[0, 0:2, :]]
         diffs = [d / np.linalg.norm(d, axis=0) for d in diffs]
@@ -49,16 +53,23 @@ def pairwise_measures(trajectories):
         
         trajectories[idx] = np.concatenate((traj,
                                             dist.reshape(1, 1, dist.shape[0]),
+                                            motion_difference,
                                             min_angle.reshape(1, 1, min_angle.shape[0])
                                            ),
                                            axis=1).astype(np.float32)
-             
+@numba.jit(parallel=True)
+def smooth_temporal_features(trajectories):
+    for traj in trajectories:
+        for f in numba.prange(traj.shape[1]):
+            traj[0, f, :] = scipy.signal.medfilt(traj[0, f, :], kernel_size=3)
 
 feature_procs = [trajectory.FeatureTransform.Normalizer(downscale_by=10.0),
                  trajectory.FeatureTransform.Angle2Geometric(),
                  trajectory.FeatureTransform(fun=pairwise_measures,
                                                     input=("x", "y", "r_sin", "r_cos", "mask"),
-                                                    output=("x", "y", "r_sin", "r_cos", "mask", "dist", "head_angle"))]
+                                                    output=("x", "y", "r_sin", "r_cos", "mask", "dist", "motion_difference", "head_angle")),
+                 trajectory.FeatureTransform(fun=smooth_temporal_features,
+                                                    input=("x", "y", "r_sin", "r_cos", "mask", "dist", "motion_difference", "head_angle"))]
 
 
 def load_features(data):
@@ -75,130 +86,28 @@ def load_features(data):
         return None
     return datareader.X, datareader.samples, datareader._valid_sample_indices
 
-def to_output_filename(path):
-    return path.replace("prefilter", "trajfilter").replace("msgpack", "zip")
+def load_model(trajectory_model_path="/mnt/storage/david/cache/beesbook/trophallaxis/1dcnn.cache", use_cuda=True):
+    torch_kwargs = dict()
+    if not use_cuda:
+        torch_kwargs["map_location"] = torch.device("cpu")
+    return torch.load(trajectory_model_path, **torch_kwargs)
 
-def process_preprocessed_data(progress="tqdm", use_cuda=True, n_loader_processes=16, n_prediction_threads=3, batchsize=1000):
-    def make_model():
-        torch_kwargs = dict()
-        if not use_cuda:
-            torch_kwargs["map_location"] = torch.device("cpu")
-        model = torch.load("/mnt/storage/david/cache/beesbook/trophallaxis/1dcnn.cache", **torch_kwargs)
-        if not use_cuda:
-            model.use_cuda = False
-        return model
-    model_cache = utils.processing.FunctionCacher(make_model, n=n_prediction_threads)
-    class ThreadCtx():
-        def __enter__(self):
-            return dict(model_factory=model_cache)
-        def __exit__(self, *args):
-            pass
-    progress_bar_fun = lambda x, **kwargs: x
-    if progress == "tqdm":
-        import tqdm
-        progress_bar_fun = tqdm.tqdm
-    elif progress == "tqdm_notebook":
-        import tqdm
-        progress_bar_fun = tqdm.tqdm_notebook
-
-    available_files_df = prefilter.get_available_processed_days()
-    processed = list(map(lambda x: os.path.isfile(to_output_filename(x)), available_files_df.filename.values))
-    available_files_df = available_files_df.iloc[~np.array(processed), :]
-    
-    def iter_and_load_data():
-        for cam_id, dt_begin, dt_end, filepath in available_files_df[["cam_id", "begin", "end", "filename"]].itertuples(index=False):
-            if os.path.isfile(to_output_filename(filepath)):
-                print("Skipping {}".format(filepath))
-                continue
-            data = None
-            try:
-                data = prefilter.load_processed_data(filepath, warnings_as_errors=True)
-            except Exception as e:
-                e = "Error! Skipping file {}. [{}]".format(filepath, str(e))
-                print(e)
-                continue
-            if data is None:
-                continue
-            data.sort_values("frame_id", inplace=True)
-            yield filepath, data
-    
-    n_features_loaded = 0
-    
-    def predict(X, samples, valid_sample_indices, thread_context, **kwargs):
-        if not "model" in thread_context:
-            thread_context["model"] = thread_context["model_factory"]()
-        model = thread_context["model"]
-        Y = model.predict_proba(X)[:, 1]
-        results = []
-        for idx in range(Y.shape[0]):
-            y = Y[idx]
+def predict(X, samples, valid_sample_indices, min_threshold=0.0, thread_context=None, **kwargs):
+    if not "model" in thread_context:
+        thread_context["model"] = thread_context["model_factory"]()
+    model = thread_context["model"]
+    Y = model.predict_proba(X)[:, 1]
+    results = []
+    for idx in range(Y.shape[0]):
+        y = Y[idx]
+        if y >= min_threshold:    
             sample_idx = valid_sample_indices[idx]
             frame_id, bee_id0, bee_id1 = samples.frame_id.iloc[sample_idx], \
                                             samples.bee_id0.iloc[sample_idx], \
                                             samples.bee_id1.iloc[sample_idx]
             results.append(dict(frame_id=frame_id, bee_id0=bee_id0, bee_id1=bee_id1, score=y))
-        results = pd.DataFrame(results)
-        return results
-    
-    generator = prefetch_generator.BackgroundGenerator(iter_and_load_data(), max_prefetch=1)
-    trange = progress_bar_fun(generator, desc="Input", total=available_files_df.shape[0])
-    total_output = 0
-    for filepath, filepath_data in trange:
-        if progress is not None:
-            trange.set_postfix(classified_samples=total_output)
-        
-        n_chunks = (filepath_data.shape[0] // batchsize) + 1
-        
-        chunk_results = []
-        chunk_range = None
-        def save_chunk_results(results, **kwargs):
-            nonlocal chunk_results
-            nonlocal chunk_range
-            nonlocal n_features_loaded
-            if progress is not None:
-                if chunk_range is None:
-                    chunk_range = progress_bar_fun(total=n_chunks - 1, desc="Chunks")
-                else:
-                    chunk_range.update()
-            chunk_results.append(results)
-         
-        def generate_chunks():
-            yield from utils.iterate_minibatches(filepath_data, targets=None, batchsize=batchsize) 
-        def generate_chunked_features():
-            yield from utils.prefetch_map(load_features, generate_chunks(), max_workers=n_loader_processes, n_prefetched_results=n_loader_processes)
-        
-        pipeline = utils.ParallelPipeline([generate_chunked_features, predict, save_chunk_results],
-                                                      n_thread_map={1:n_prediction_threads}, thread_context_factory=lambda: ThreadCtx(),
-                                                      queue_size_map={0: 2})
-        n_features_loaded = 0
-        model_cache.reset()
-        pipeline()
-        if chunk_range is not None:
-            chunk_range.close()
-        if len(chunk_results) == 0:
-            print("No results for {}".format(filepath))
-            continue
-        results_df = pd.concat(chunk_results, axis=0)
-        
-        df = filepath_data.merge(results_df, how="left", on=("frame_id", "bee_id0", "bee_id1"))
-        df = df[["frame_id", "bee_id0", "bee_id1", "score"]]
-        total_output += results_df.shape[0]
-        
-        df.frame_id = df.frame_id.astype(np.uint64)
-        df.bee_id0 = df.bee_id0.astype(np.uint16)
-        df.bee_id1 = df.bee_id1.astype(np.uint16)
-        df.score = df.score.astype(np.float32)
-        raw_df = list(df.itertuples(index=False))
-
-        output_filename = to_output_filename(filepath)
-        with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zf:
-                with zf.open(output_filename.split("/")[-1].replace("zip", "msgpack"), "w") as file:
-                    msgpack.dump(raw_df, file, use_bin_type=True)
-
-        del chunk_results
-        del results_df
-        del df
-        del raw_df
+    results = pd.DataFrame(results)
+    return results
 
 def get_available_processed_days(base_path=None):
     """Loads the available processed trajectory data chunks' metadata and returns them as a data frame.
@@ -214,7 +123,7 @@ def get_available_processed_days(base_path=None):
         base_path = "/mnt/storage/david/cache/beesbook/trophallaxis"
     available_files = set()
     for ext in ("zip",):
-        available_files |= set(glob.glob(base_path + "/trajfilter.*." + ext))
+        available_files |= set(glob.glob(base_path + "/trophallaxis.*." + ext))
     
     available_files = list(sorted(list(available_files)))
     available_files_df = []
@@ -258,8 +167,7 @@ def load_processed_data(f, threshold):
 
     if len(data) == 0:
         return None
-    from IPython.display import display
-    frame_id, bee_id0, bee_id1, score = zip(*data)
+    bee_id0, bee_id1, frame_id, score = zip(*data)
     frame_id = pd.Series(frame_id, dtype=np.uint64)
     bee_id0 = pd.Series(bee_id0, dtype=np.uint16)
     bee_id1 = pd.Series(bee_id1, dtype=np.uint16)
