@@ -27,6 +27,7 @@ def generate_jobs(dt_from, dt_to, target_dir=None):
     written = 0
     already_done = 0
     already_open = 0
+    already_in_progress = 0
     current_day_start = dt_from
     while current_day_start < dt_to:
         current_day_end = current_day_start + datetime.timedelta(days=1)
@@ -42,13 +43,18 @@ def generate_jobs(dt_from, dt_to, target_dir=None):
             if os.path.isfile(parameter_filename):
                 already_open += 1
                 continue
+            # Already being worked on?
+            temp_filename = parameter_filename + ".temp"
+            if os.path.isfile(temp_filename):
+                already_in_progress += 1
+                continue
             with open(parameter_filename, "wb") as f:
                 pickle.dump(dict(start=current_day_start, end=current_day_end, cam_id=cam_id), f)
             written += 1
 
         current_day_start = current_day_end
 
-    print("Jobs created: {} (already open: {}, already done: {})".format(written, already_open, already_done))
+    print("Jobs created: {} (already open: {}, already done: {}, in progress: {})".format(written, already_open, already_done, already_in_progress))
 
 
 def execute_job(job_filename, use_cuda, trajectory_model_path, max_workers, min_threshold, progress):
