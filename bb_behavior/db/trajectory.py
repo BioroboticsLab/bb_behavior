@@ -281,7 +281,7 @@ def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=
         mask = interpolate_trajectory(trajectory)
     return trajectory, mask
 
-def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consistent=True, interpolate=True):
+def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None, make_consistent=True, interpolate=True):
     """Retrieves the coherent, short track for a track ID that was produced by the tracking mapping.
     The track can contain gaps and might not start at the beginning of the given frames.
 
@@ -305,7 +305,7 @@ def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consist
             that can uniquely indentify a detection. The latter can contain None where no data is available.
             The former will be interpolated, if set, but never extrapolated beyond the track boundaries.
     """
-    if len(frames) == 0:
+    if (frames is not None) and (len(frames) == 0):
         return []
     if cursor is None:
         with base.get_database_connection(application_name="get_track") as db:
@@ -315,20 +315,26 @@ def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consist
     if use_hive_coords:
         coords = (c + "_hive" for c in coords)
     
-    if type(frames[0]) is tuple: # (timestamp, frame_id, cam_id) style.
-        frame_ids = [f[1] for f in frames]
-    else:
-        frame_ids = frames
-        if make_consistent:
-            raise ValueError("get_track: make_consistent==True requires frames given as (timestamp, frame_id, cam_id) tuples.")
-    frame_ids = list(map(int, frame_ids))
+    frame_condition = ""
+    query_arguments = (track_id, )
+    if frames is not None:
+        if type(frames[0]) is tuple: # (timestamp, frame_id, cam_id) style.
+            frame_ids = [f[1] for f in frames]
+        else:
+            frame_ids = frames
+            if make_consistent:
+                raise ValueError("get_track: make_consistent==True requires frames given as (timestamp, frame_id, cam_id) tuples.")
+        frame_ids = list(map(int, frame_ids))
 
+        frame_condition = " frame_id = ANY(%s) AND "
+        query_arguments = (frame_ids, track_id)
     cursor.execute(
            "SELECT detection_idx, timestamp, frame_id, {} AS x, {} AS y, {} as orientation, track_id FROM bb_detections_2016_stitched "
-           "WHERE frame_id = ANY(%s) AND track_id = %s ORDER BY timestamp ASC".format(*coords), (frame_ids, track_id))
+           "WHERE {} track_id = %s ORDER BY timestamp ASC".format(*coords, frame_condition), query_arguments)
     track = cursor.fetchall()
     detection_keys = {t[2]: t[0] for t in track}
-    track = get_consistent_track_from_detections(frames, [t[1:] for t in track])
+    if make_consistent:
+        track = get_consistent_track_from_detections(frames, [t[1:] for t in track])
 
     keys = []
     for t in track:
