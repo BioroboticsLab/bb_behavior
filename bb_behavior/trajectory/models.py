@@ -3,7 +3,16 @@ import torch
 import torch.nn.functional
 import torch.nn
 import sklearn.metrics
+import math
 import numpy as np
+
+class Fixup(torch.nn.Module):
+    def __init__(self):
+        super(Fixup, self).__init__() 
+        self.gain = torch.nn.Parameter(torch.ones(1))
+        self.bias = torch.nn.Parameter(torch.zeros(1))
+    def forward(self, x):
+        return self.gain * x + self.bias
 
 class CNN1D(torch.nn.Module):
 
@@ -44,7 +53,7 @@ class CNN1D(torch.nn.Module):
     def __init__(self, n_features, timesteps, num_layers=2, n_channels=9,\
                  kernel_size=5, conv_dropout=0.33, max_pooling=True, batch_norm=True,
                  initial_batch_size=64, grow_batch_size=True, initial_learning_rate=0.001, learning_rate_decay=0.98, train_epochs=100,
-                 cuda=True, optimizer="adam", class_weights=None, n_classes=2):
+                 cuda=True, optimizer="adam", class_weights=None, n_classes=2, fixup_init=True):
         super().__init__()
 
         self.num_layers = num_layers
@@ -71,6 +80,8 @@ class CNN1D(torch.nn.Module):
         for i in range(len(channels) - 1):
             if i > 0 and self.batch_norm:
                 self.convs.append(torch.nn.BatchNorm1d(channels[i]))
+            if fixup_init:
+                self.convs.append(Fixup())
             self.convs.append(torch.nn.Conv1d(channels[i], channels[i+1], kernel_size=kernel_size, padding=kernel_size // 2))
             self.convs.append(torch.nn.SELU())
             if i > 0 and i < len(channels) - 1 and conv_dropout > 0.001:
@@ -84,14 +95,32 @@ class CNN1D(torch.nn.Module):
         
         last_conv_size = self.o_depth * self.out_channels
         denses = []
+        if fixup_init:
+            denses.append(Fixup())
         denses.append(torch.nn.Linear(last_conv_size, 8))
         denses.append(torch.nn.SELU())
+        if fixup_init:
+            denses.append(Fixup())
         denses.append(torch.nn.Linear(8, n_classes))
         
         self.denses = torch.nn.Sequential(*denses)
         
         if cuda:
             self.cuda()
+
+        if fixup_init:
+            layers = []
+            def gather_layers(l):
+                if type(l) == torch.nn.Linear:
+                    layers.append(l)
+            self.apply(gather_layers)
+            m = len(layers)
+            for idx, l in enumerate(layers[::-1]):
+                if idx == 0:
+                    l.weight.data.zero_()
+                    l.bias.data.zero_()
+                else:
+                    l.weight.data.normal_(0, math.sqrt(2 / (m - idx)) * (m ** -0.5))
 
     def forward(self, inputs, hidden=None, force=True, steps=0, verbose=False, cuda=None):
         if cuda is None:
