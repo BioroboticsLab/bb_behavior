@@ -1,6 +1,8 @@
 from . import base
+import datetime
 import numpy as np
 import pandas as pd
+import psycopg2
 import psycopg2.extras
 
 def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dataframe=True, include_video_name=False,
@@ -101,3 +103,123 @@ def get_alive_bees(dt_from, dt_to, cursor=None):
     cursor.execute("SELECT bee_id from alive_bees_2016 WHERE timestamp >= %s and timestamp < %s ", (dt_from, dt_to))
     bee_ids = {result[0] for result in cursor.fetchall()}
     return bee_ids
+
+def create_frame_metadata_table(repository_path, host, user, password, database="beesbook", tablename_suffix="", progress="tqdm"):
+    """Reads a bb_binary.Repository and puts all the frame IDs, frame containers and their metadata (e.g. global index for frames)
+    into two new database tables.
+
+    Arguments:
+        repository_path: string
+            Path to a bb_binary.Repository.
+        host, user, password, database: string
+            Credentials for the database server.
+        tablename_suffix: string
+            Suffix for the table names (e.g. "2019_berlin").
+        progress: string ("tqdm"/"tqdm_notebook") or callable
+            Optional. Used to display the import progress.
+    """
+    from collections import defaultdict
+    import bb_binary
+    repo = bb_binary.Repository(repository_path)
+    
+    cam_id_indices = defaultdict(int)
+    next_frame_container_id = 0
+    
+    if progress is not None:
+        if progress == "tqdm":
+            import tqdm
+            progress = tqdm.tqdm
+        elif progress == "tqdm_notebook":
+            import tqdm
+            progress = tqdm.tqdm_notebook
+    else:
+        progress = lambda x: x
+
+    with psycopg2.connect(host=host, user=user, password=password, database=database) as con:
+        cursor = con.cursor()
+        
+        framecontainer_tablename = "bb_framecontainer_metadata_" + tablename_suffix
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS {} (
+            id integer NOT NULL,
+            fc_id numeric(32,0) NOT NULL,
+            fc_path text NOT NULL,
+            video_name text NOT NULL
+        );
+
+        """.format(framecontainer_tablename))
+        
+        frame_tablename = "bb_frame_metadata_" + tablename_suffix
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS {} (
+            frame_id numeric(32,0) NOT NULL,
+            frame_number bigint NOT NULL,
+            cam_id smallint NOT NULL,
+            index integer NOT NULL,
+            fc_id integer NOT NULL,
+            "timestamp" double precision NOT NULL,
+            "datetime" timestamp with time zone NOT NULL
+        );
+
+        """.format(frame_tablename))
+        
+        framecontainer_statement = """
+                       INSERT INTO {} (id, fc_id, fc_path, video_name) VALUES %s
+                        """.format(framecontainer_tablename)
+        frame_statement = """
+                       INSERT INTO {} (frame_id, frame_number, cam_id,
+                           index, fc_id, "timestamp", "datetime") VALUES %s
+                        """.format(frame_tablename)
+        
+        
+        def commit_batch(batch, statement):
+            if len(batch) == 0:
+                return
+            psycopg2.extras.execute_values(cursor, statement,
+                                           batch, page_size=200)
+            del batch[:]
+            con.commit()
+            
+        frame_batch = []    
+        def commit_frame_batch():
+            commit_batch(frame_batch, frame_statement)
+            
+        framecontainer_batch = []    
+        def commit_framecontainer_batch():
+            commit_batch(framecontainer_batch, framecontainer_statement)
+
+        for fc_path in progress(repo.iter_fnames()):
+            fc = bb_binary.load_frame_container(fc_path)
+            
+            fc_id = fc.id
+            cam_id = fc.camId
+            video_path = fc.dataSources[0].filename
+            
+            next_fc_frame_number = cam_id_indices[cam_id]
+            
+            for frame in fc.frames:
+                frame_id = frame.id
+                frame_timestamp = frame.timestamp
+                frame_datetime = datetime.datetime.utcfromtimestamp(frame_timestamp)
+                frame_index = frame.frameIdx
+
+                frame_batch.append((
+                    frame_id, next_fc_frame_number, cam_id,
+                    frame_index, next_frame_container_id,
+                    frame_timestamp, frame_datetime))
+                
+                next_fc_frame_number += 1
+                
+                if len(frame_batch) > 2000:
+                    commit_frame_batch()
+                    
+            cam_id_indices[cam_id] = next_fc_frame_number
+            commit_frame_batch()
+            
+            framecontainer_batch.append((next_frame_container_id, fc_id, fc_path, video_path))
+            if len(framecontainer_batch) > 100:
+                    commit_framecontainer_batch()
+            
+            next_frame_container_id += 1
+        
+        commit_framecontainer_batch()
