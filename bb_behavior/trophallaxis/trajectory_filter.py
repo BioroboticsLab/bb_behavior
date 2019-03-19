@@ -170,7 +170,7 @@ def load_processed_data(f, threshold):
 
     if len(data) == 0:
         return None
-    bee_id0, bee_id1, frame_id, score = zip(*data)
+    frame_id, bee_id0, bee_id1, score = zip(*data)
     frame_id = pd.Series(frame_id, dtype=np.uint64)
     bee_id0 = pd.Series(bee_id0, dtype=np.uint16)
     bee_id1 = pd.Series(bee_id1, dtype=np.uint16)
