@@ -71,6 +71,7 @@ def execute_job(job_filename, use_cuda, trajectory_model_path, max_workers, min_
 
         # Load trajectory model.
         model = trajectory_filter.load_model(trajectory_model_path, use_cuda=use_cuda)
+        trajectory_filter.use_cuda = use_cuda
         
         job_results = []
         # Filter data.
