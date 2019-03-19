@@ -80,8 +80,11 @@ def load_features(data):
     try:
         datareader.create_features()
     except Exception as e:
-        from IPython.display import display
-        display(data)
+        try:
+            from IPython.display import display
+            display(data)
+        except:
+            pass
         print("Chunk failed with {}".format(str(e)))
         return None
     return datareader.X, datareader.samples, datareader._valid_sample_indices
