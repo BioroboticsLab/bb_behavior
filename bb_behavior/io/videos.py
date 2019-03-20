@@ -32,8 +32,8 @@ def extract_frames_from_video(video_path, target_directory, start_frame=0, n_fra
 
     call_args = codec + [
         "-y", "-v", "24", "-r", str(framerate), "-i", video_path, "-start_number", "0",
-        "-vf", f"select=gte(n\\,{start_frame}){scale}", "-qscale:v", "2",
-        "-vframes", str(n_frames), f"{target_directory}/%04d.bmp"]
+        "-vf", "select=gte(n\\,{start_frame}){scale}".format(start_frame=start_frame, scale=scale), "-qscale:v", "2",
+        "-vframes", str(n_frames), "{target_directory}/%04d.bmp".format(target_directory=target_directory)]
 
     subprocess.run([command] + call_args, stderr=subprocess.PIPE)
     
@@ -96,7 +96,7 @@ class BeesbookVideoManager():
         if self.videos_in_subdirectories:
             cam = video_name[:5]
             date = video_name[6:(6 + 10)]
-            path += f"{date}/{cam}/"
+            path += "{date}/{cam}/".format(date=date, cam=cam)
 
         return path + video_name
 
