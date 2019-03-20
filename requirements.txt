@@ -2,3 +2,7 @@ numpy
 pandas
 numba
 psycopg2
+scikit-learn
+torch
+torchvision
+matplotlib
