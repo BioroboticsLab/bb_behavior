@@ -262,8 +262,8 @@ class GUI():
         self.image_widget.clear_output()
         with self.image_widget:
             fig, axes = plt.subplots(1, 5, figsize=(40, 10))
-            print(f"frame: {frame_id}, {bee_id0} and {bee_id1}")
-            plt.title(f"frame: {frame_id}, {bee_name0} and {bee_name1} ({bee_id0} and {bee_id1})")
+            print("frame: {}, {} and {}".format(frame_id, bee_id0, bee_id1))
+            plt.title("frame: {}, {} and {} ({} and {})".format(frame_id, bee_name0, bee_name1, bee_id0, bee_id1))
             middle_frames = self.frames[int(len(self.frames) / 2 - len(axes) / 2):]
             for idx, ax in enumerate(axes):
                 ax.imshow(middle_frames[idx], cmap="gray")
@@ -291,7 +291,9 @@ class GUI():
             with open(ground_truth_save_path, 'a') as file:
                 # Write only one frame if begin and end are not specified (assume middle frame).
                 if end_idx <= begin_idx and action != "nothing":
-                    file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{action},{ground_truth_data_version}, {event_id}, 0\n")
+                    file.write("{frame_id},{bee_id0},{bee_id1},{name},{now},{action},{ground_truth_data_version}, {event_id}, 0\n".format(
+                        frame_id=frame_id, bee_id0=bee_id0, bee_id1=bee_id1, name=name, now=now,
+                        action=action, ground_truth_data_version=ground_truth_data_version, event_id=event_id))
                 else:
                     # Annotate whole event.
                     for i in range(len(self.frames)):
@@ -304,8 +306,11 @@ class GUI():
                                 continue
                             # Otherwise, if the user gave a label for a range, then the rest is considered 'nothing'.
                             frame_action = "nothing"
-                        file.write(f"{frame_id},{bee_id0},{bee_id1},{name},{now},{frame_action},{ground_truth_data_version},{event_id},{i}\n")
-            info_text = f"{action}! \t (sample was {frame_id}, {bee_id0} and {bee_id1})"
+                        file.write("{frame_id},{bee_id0},{bee_id1},{name},{now},{frame_action},{ground_truth_data_version}, {event_id},{i}\n".format(
+                            frame_id=frame_id, bee_id0=bee_id0, bee_id1=bee_id1, name=name, now=now,
+                            frame_action=frame_action, ground_truth_data_version=ground_truth_data_version, event_id=event_id, i=i))
+            info_text = "{action}! \t (sample was {frame_id}, {bee_id0} and {bee_id1})".format(
+                            action=action, frame_id=frame_id, bee_id0=bee_id0, bee_id1=bee_id1)
         self.view_next_interaction(info_text)
 
     def __call__(self, interactions, max_prefetch=20):
