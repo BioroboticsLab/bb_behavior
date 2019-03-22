@@ -35,7 +35,7 @@ def generate_jobs(dt_from, dt_to, target_dir=None):
         for cam_id in range(4):
             job_name = get_job_filename(cam_id, current_day_start, current_day_end, target_dir)
             # Already finished?
-            if os.path.isfile(job_name + ".zip"):
+            if os.path.isfile(job_name):
                 already_done += 1
                 continue
             # Already open?
@@ -57,7 +57,7 @@ def generate_jobs(dt_from, dt_to, target_dir=None):
     print("Jobs created: {} (already open: {}, already done: {}, in progress: {})".format(written, already_open, already_done, already_in_progress))
 
 
-def execute_job(job_filename, use_cuda, trajectory_model_path, max_workers, min_threshold, progress):
+def execute_job(job_index, job_filename, use_cuda, trajectory_model_path, max_workers, min_threshold, progress):
     if not os.path.isfile(job_filename):
         print("Job race condition.")
         return
@@ -76,7 +76,7 @@ def execute_job(job_filename, use_cuda, trajectory_model_path, max_workers, min_
         job_results = []
         # Filter data.
         with db.DatabaseCursorContext() as cursor:
-            for (timestamp, frame_id, cam_id) in progress(prefilter.iter_frames_to_filter(cam_id, start, end), leave=False):
+            for (timestamp, frame_id, cam_id) in progress(prefilter.iter_frames_to_filter(cam_id, start, end), leave=True, position=job_index+1):
                 _, _, _, prefiltered_data = prefilter.process_frame_with_prefilter((timestamp, frame_id, cam_id), thread_context=cursor)
 
                 features = trajectory_filter.load_features(prefiltered_data)
@@ -124,8 +124,8 @@ def execute_all_jobs(target_dir, progress="tqdm", use_cuda=True, trajectory_mode
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = []
-        for job in open_jobs:
-            future = executor.submit(execute_job, target_dir + "/" + job, use_cuda, trajectory_model_path, 
+        for job_index, job in enumerate(open_jobs):
+            future = executor.submit(execute_job, job_index, target_dir + "/" + job, use_cuda, trajectory_model_path, 
                                         max_workers, min_threshold, progress)
             futures.append(future)
 
