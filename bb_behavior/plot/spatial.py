@@ -8,7 +8,7 @@ def plot_spatial_values(iterable,
                               x_lim=(0, 100), y_lim=(0, 100),
                               bin_width=None, figsize=(20, 10),
                               cmap="bwr", interpolation="bicubic", metric="mean",
-                              verbose=False, alpha=None,
+                              verbose=False, alpha=None, orient="v", save_path=None
                              ):
     """Takes an iterable providing positions and values and plots a heatmap of the values.
     Can take multiple different categories (e.g. cameras) in one iterable.
@@ -35,7 +35,8 @@ def plot_spatial_values(iterable,
         alpha: None or string (see metric)
             If given, this specifies the alpha value of the heatmap.
             E.g. metric="mean", alpha="count"
-        
+        orient: "h" or "v"
+            Whether the different categories in the data will be horizontally or vertically aligned.
     """
     if bin_width is None:
         bin_width = max((y_lim[1] - y_lim[0]) / 20, (x_lim[1] - x_lim[0]) / 20)
@@ -91,9 +92,14 @@ def plot_spatial_values(iterable,
         raise ValueError("Unknown metric.")
     
     n_categories = len(accumulators.keys())
-    fig, axes = plt.subplots(n_categories, 1, figsize=figsize)
+    grid = (n_categories, 1) if orient == "v" else (1, n_categories)
+    fig, axes = plt.subplots(*grid, figsize=figsize)
     cmap = matplotlib.cm.get_cmap(cmap)
     
+    # Split the iteration over the data from the plotting so we can get common limits.
+    colorbar_limits = +np.inf, -np.inf
+    results_to_plot = []
+
     for idx, (category, (mean, count, M2)) in enumerate(sorted(accumulators.items())):
         ax = axes[idx]
         if category is not None:
@@ -108,7 +114,13 @@ def plot_spatial_values(iterable,
             result_alpha /= result_alpha.max()
             if alpha in ("var", "sample_var", "std"):
                 result_alpha = 1.0 - result_alpha
-        vmin, vmax = result.min(), result.max()
+        vmin, vmax = np.percentile(result.flatten(), (1, 99))
+        colorbar_limits = min(colorbar_limits[0], vmin), max(colorbar_limits[1], vmax)
+        results_to_plot.append((ax, result, result_alpha))
+
+    for (ax, result, result_alpha) in results_to_plot:
+        # Common limits.
+        vmin, vmax = colorbar_limits
         normalizer = matplotlib.colors.Normalize(vmin, vmax, clip=False)
         colormapper = matplotlib.cm.ScalarMappable(norm=normalizer, cmap=cmap)
         colormapper.set_array([])
@@ -122,5 +134,8 @@ def plot_spatial_values(iterable,
         ax.set_axis_off()
         
         ax.set_aspect("equal")
-        
-    plt.show()
+    
+    if save_path is not None:
+        plt.savefig(save_path)
+    else:
+        plt.show()
