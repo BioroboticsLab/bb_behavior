@@ -91,6 +91,25 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, frame_container_id=None, cur
     results = [(timestamp, frame_id, cam_id) for (timestamp, frame_id, fc_id) in results if fc_id in matching_cam]
     return sorted(results)
 
+def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_threshold=0.1, sample_fraction=1.0, cursor=None):
+    if cursor is None:
+        with base.get_database_connection(application_name="get_detections_for_frames") as db:
+            return get_detections_for_frames(frames, cursor=db.cursor("detection cursor"))
+    
+    coordinate_string = "x_pos as x, y_pos as y, orientation "
+    if use_hive_coordinates:
+        coordinate_string = "x_pos_hive as x, y_pos_hive as y, orientation_hive as orientation "
+    sample_string = ""
+    if sample_fraction is not None and sample_fraction < 1.0:
+        sample_string = "TABLESAMPLE BERNOULLI ({}) ".format(sample_fraction * 100)
+    cursor.execute("SELECT timestamp, frame_id, " + coordinate_string + ", track_id, bee_id "
+            "FROM bb_detections_2016_stitched " + sample_string + \
+            "WHERE frame_id = ANY(%s) "
+            "AND bee_id_confidence > %s "
+            "ORDER BY timestamp ASC", (list(map(int, frames), confidence_threshold)))
+
+    yield from cursor
+
 def get_track_ids(frames, cursor=None):
     """Retrieves all unique track IDs from the database that occur in a given set of frame_ids.
     Arguments:
