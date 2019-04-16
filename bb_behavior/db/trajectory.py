@@ -85,8 +85,13 @@ def get_consistent_track_from_detections(frames, detections, verbose=False):
         list(tuple(timestamp, frame_id, x_pos, y_pos, orientation, track_id)) sorted by timestamp; can contain None.
         Length is the same as the length of 'frames'.
     """
+    # frames can be a list of tuples or a list of ints.
+    if len(frames) > 0 and type(frames[0]) is tuple:
+        frame_ids = [f[1] for f in frames]
+    else:
+        frame_ids = frames
     results = []
-    for n_idx, (timestamp, frame_id, _) in enumerate(frames):
+    for n_idx, frame_id in enumerate(frame_ids):
         if (len(detections) == 0) or (frame_id is None):
             results.append(None)
             continue
@@ -131,7 +136,7 @@ def get_consistent_track_from_detections(frames, detections, verbose=False):
 
 def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
                         use_hive_coords=False,
-                        cursor=None, cursor_is_prepared=False, **kwargs):
+                        cursor=None, cursor_is_prepared=False, make_consistent=True, **kwargs):
     """Fetches all detections for a bee between some time points or around a center frame.
         The results include "None" when no detection was found for a time step.
         
@@ -142,7 +147,8 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
             frames: optional list of frames containing tuples of (timestamp, frame_id, cam_id), see get_frames
             use_hive_coords: (default False) whether to retrieve hive coordinates
             cursor: optional database cursor to work on
-            
+            make_consistent: bool
+                Whether the frames are a consecutive track. Filters out duplicate detections per frame and orders the return values.
         Returns:
             List containing tuples of (timestamp, frame_id, x_pos, y_pos, orientation, track_id) sorted by timestamp; can contain None
     """
@@ -158,8 +164,11 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
             return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, cursor=db.cursor(), **kwargs)
     
     frames = frames or sampling.get_neighbour_frames(frame_id=frame_id, cursor=cursor, cursor_is_prepared=cursor_is_prepared, **kwargs)
-    frame_ids = [int(f[1]) for f in frames if f[1] is not None]
-    
+    # Is frames a list of tuples? (Can also be a simple list of frame_ids.)
+    if len(frames) > 0 and type(frames[0]) is tuple:
+        frame_ids = [int(f[1]) for f in frames if f[1] is not None]
+    else:
+        frame_ids = frames
     if not cursor_is_prepared:
         coords_string = "x_pos AS x, y_pos AS y, orientation"
         if use_hive_coords:
@@ -170,8 +179,10 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
         prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
         cursor.execute("EXECUTE " + prepared_statement_name + " (%s, %s)", (frame_ids, bee_id))
     detections = cursor.fetchall()
-    
-    return get_consistent_track_from_detections(frames, detections, verbose=verbose)
+    if make_consistent:
+        return get_consistent_track_from_detections(frames, detections, verbose=verbose)
+    else:
+        return detections
 
 @numba.njit
 def short_angle_dist(a0,a1):
