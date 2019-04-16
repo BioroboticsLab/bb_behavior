@@ -130,5 +130,8 @@ def execute_all_jobs(target_dir, progress="tqdm", use_cuda=True, trajectory_mode
             futures.append(future)
 
         for future in progress(futures):
-            future.result()
+            try:
+                future.result()
+            except Exception as e:
+                print("Job failed with {}".format(str(e)))
 
