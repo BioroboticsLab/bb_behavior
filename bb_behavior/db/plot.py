@@ -83,9 +83,9 @@ def plot_timeline_from_database(
                       **kwargs)
 
 def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=False):
-    from ...db.trajectory import DatabaseCursorContext, get_bee_detections
-    from ...db.sampling import sample_frame_ids, get_bee_ids
-    from ...db.metadata import get_frame_metadata
+    from ..db.trajectory import DatabaseCursorContext, get_bee_detections
+    from ..db.sampling import sample_frame_ids, get_bee_ids
+    from ..db.metadata import get_frame_metadata
     from bb_utils.meta import BeeMetaInfo
     from bb_utils.ids import BeesbookID
     bb_meta_info = BeeMetaInfo()
@@ -124,15 +124,13 @@ def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=
                     continue
                 yield dict(x=x, y=y, value=age, category=hive_side)
 
-def plot_age_distribution_from_database(dt_from, dt_to, n_frames=10, verbose=False, sample_positions=None):
+def plot_age_distribution_from_database(dt_from, dt_to, n_frames=10, verbose=False, sample_positions=None, plot_kwargs=dict()):
     from ..plot.spatial import plot_spatial_values
     sample_positions = sample_positions or list(fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=n_frames, verbose=verbose))
     if verbose:
         print("Total samples: {}".format(len(sample_positions)))
-
+    plot_kwargs = {**dict(cmap="viridis", figsize=(20, 20)), **plot_kwargs}
     plot_spatial_values(sample_positions,
-                          figsize=(20, 20),
                           metric="mean", alpha="count",
-                          cmap="viridis",
                           bin_width=5, interpolation="none", verbose=False,
-                         x_lim=(0, 350), y_lim=(0, 240))
+                         x_lim=(0, 350), y_lim=(0, 240), **plot_kwargs)
