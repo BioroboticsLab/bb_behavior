@@ -1,6 +1,7 @@
 import math
 import numba
 import numpy as np
+import pandas as pd
 
 from .. import utils
 from . import base
@@ -359,3 +360,98 @@ def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None,
     if interpolate:
         interpolate_trajectory(track)
     return track, keys
+
+def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
+                       cursor_is_prepared=False, progress="tqdm_notebook",
+                       confidence_threshold=0.1, fixup_velocities=True):
+    """Retrieves the velocities of a bee over time.
+
+    Arguments:
+        bee_id: int
+            To query data from the database. In ferwar format.
+        dt_from, dt_to: datetime.datetime
+            Time interval to search for results.
+        cursor: pyscopg2.cursor
+            Optional. Connected database cursor.
+        cursor_is_prepared: bool
+            Whether to execute prepare statements on the cursor.
+        progress: "tqdm", "tqdm_notebook" or None
+            Progress bar to display.
+        confidence_threshold: float
+            Retrieves only detections above this threshold.
+        fixup_velocities: bool
+            Whether to assume that the timestamps are at 3Hz and smoothing them is okay.
+    """
+    if not cursor:
+        from contextlib import closing
+        with closing(base.get_database_connection("get_bee_velocities")) as con:
+            return get_bee_velocities(bee_id, dt_from, dt_to, cursor=con.cursor(), cursor_is_prepared=False,
+                                      progress=progress)
+    
+    import pytz
+    import scipy.signal
+
+    if not cursor_is_prepared:
+        cursor.execute("""PREPARE fetch_track_ids_for_bee AS
+                SELECT 
+                    track_id, MIN(timestamp), MAX(timestamp)
+                    FROM bb_detections_2016_stitched
+                    WHERE timestamp >= $1
+                       AND timestamp <= $2
+                       AND bee_id = $3
+                    GROUP BY track_id
+                    """)
+        
+        cursor.execute("""PREPARE fetch_track AS
+                SELECT timestamp, x_pos_hive, y_pos_hive, orientation_hive
+                   FROM bb_detections_2016_stitched 
+                   WHERE
+                       track_id = $1
+                       AND bee_id_confidence > {}
+                       ORDER BY timestamp ASC
+                """.format(confidence_threshold))
+    
+    progress_bar = lambda x: x
+    if progress == "tqdm":
+        from tqdm import tqdm
+        progress_bar = tqdm
+    elif progress == "tqdm_notebook":
+        from tqdm import tqdm_notebook
+        progress_bar = tqdm_notebook
+    
+    query_args = (dt_from, dt_to, bee_id)
+    cursor.execute("EXECUTE fetch_track_ids_for_bee (%s, %s, %s)", query_args)
+    track_ids = cursor.fetchall()
+    track_ids = list(sorted(track_ids, key=lambda x: x[1]))
+    track_ids = [track_ids[i] for i in range(len(track_ids)-1) if track_ids[i][2] > track_ids[i+1][1]]
+    
+    all_velocities = []
+    
+    for track_id, _, _ in progress_bar(track_ids):
+        cursor.execute("EXECUTE fetch_track (%s)", (track_id, ))
+        track = cursor.fetchall()
+        if not track:
+            continue
+        datetimes, x, y, _ = zip(*track)
+        timestamps = [dt.timestamp() for dt in datetimes]
+        x, y, timestamps = np.diff(x), np.diff(y), np.diff(timestamps)
+        assert np.all(timestamps > 0.0)
+        
+        v = np.sqrt(np.square(x) + np.square(y))
+        
+        if fixup_velocities:
+            timestamps = (timestamps / 0.30).astype(np.int).astype(np.float)
+            timestamps = (0.3333 * (timestamps + 1.0))
+        v = v / timestamps
+        v = scipy.signal.medfilt(v, kernel_size=3)
+        
+        df = pd.DataFrame(dict(
+                velocity=v,
+                time_passed=timestamps,
+                datetime=list(map(lambda x: x.replace(tzinfo=pytz.UTC), datetimes[:-1]))))
+        all_velocities.append(df)
+    if not all_velocities:
+        return None
+    all_velocities = pd.concat(all_velocities, axis=0)
+    all_velocities = all_velocities[(all_velocities.datetime >= dt_from) & (all_velocities.datetime <= dt_to)]
+    return all_velocities
