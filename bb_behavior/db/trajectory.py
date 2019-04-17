@@ -362,7 +362,7 @@ def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None,
     return track, keys
 
 def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
-                       cursor_is_prepared=False, progress="tqdm_notebook",
+                       cursor_is_prepared=False, progress=None,
                        confidence_threshold=0.1, fixup_velocities=True):
     """Retrieves the velocities of a bee over time.
 
@@ -386,7 +386,7 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         from contextlib import closing
         with closing(base.get_database_connection("get_bee_velocities")) as con:
             return get_bee_velocities(bee_id, dt_from, dt_to, cursor=con.cursor(), cursor_is_prepared=False,
-                                      progress=progress)
+                                      progress=progress, confidence_threshold=confidence_threshold, fixup_velocities=fixup_velocities)
     
     import pytz
     import scipy.signal
