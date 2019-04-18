@@ -1,9 +1,11 @@
 import datetime
+import pandas as pd
 import itertools
 
 def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
                  y="y", time="time", color="color", title="Timeline", filename="out.html",
-                colormap=None, meta_keys=None, description_fun=None, fill_gaps=True):
+                colormap=None, meta_keys=None, description_fun=None, fill_gaps=True,
+                backend="plotly"):
     """Takes an iterable data source and merges the returned events into chunks that are max. min_gap_size apart.
     
     Arguments:
@@ -37,12 +39,9 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
             Taking the meta information of the beginning and ending of a sequence and returning a description.
         fill_gaps: boolean
             Whether empty durations longer than min_gap_size are filled with a special "Gap" color.
-    """
-    import plotly.figure_factory as ff
-    import plotly.offline
-    if filename is None:
-        plotly.offline.init_notebook_mode()
-    
+        backend: "plotly" or "bokeh"
+            Backend to use for plotting.
+    """   
     from collections import defaultdict
     last_x_for_y = defaultdict(list)
     
@@ -66,7 +65,7 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
                 dt_end = dt
             ))
 
-        if not last_x or (category != last_x["Resource"]):
+        if not last_x or (category != last_x[-1]["Resource"]):
             push()
             continue
         last_x = last_x[-1]
@@ -97,14 +96,36 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
             duration = (dt_end - dt_start)
             meta_values = s["meta_values"]
             meta_values_end = s["meta_values_end"]
-            description = "Duration: {}".format(duration)
+            s["description"] = "{}".format(duration)
             if description_fun is not None and (meta_values or meta_values_end):
-                description += "\n<br>" + description_fun(meta_values, meta_values_end)
+                s["description"] += "\n<br>" + description_fun(meta_values, meta_values_end)
                 
     df = list(itertools.chain(*list(last_x_for_y.values())))
-    fig = ff.create_gantt(df, colors=colormap, group_tasks=True, index_col="Resource", title=title)
-    fig = plotly.offline.plot(fig, filename=filename, image_width=1024, image_height=600)
-    if filename is None:
-        from IPython.display import display
-        display(fig)
+    if backend == "plotly":
+        import plotly.figure_factory as ff
+        import plotly.offline
+        if filename is None:
+            plotly.offline.init_notebook_mode()
+            
+        fig = ff.create_gantt(df, colors=colormap, group_tasks=True, index_col="Resource", title=title)
+        fig = plotly.offline.plot(fig, filename=filename, image_width=1024, image_height=600)
+        if filename is None:
+            from IPython.display import display
+            display(fig)
+    elif backend == "bokeh":
+        import bokeh.io, bokeh.models, bokeh.models.tools, bokeh.plotting
+        bokeh.io.output_file(filename)
+        plot_data_df = pd.DataFrame(df)
+        plot_data_df["color"] = plot_data_df.Resource.apply(lambda x: colormap[x] if colormap else "blue")
+        source = bokeh.models.ColumnDataSource(plot_data_df[["Task", "dt_start", "dt_end",
+                                                            "Start", "Finish", "color", "description"]])
+
+        p = bokeh.plotting.figure(y_range=plot_data_df.Task.unique(), plot_width=1024, plot_height=600,
+                title=title)
+        p.hbar(y="Task", left='dt_start', right='dt_end', fill_color="color", height=0.4, source=source)
+        p.add_tools(bokeh.models.tools.HoverTool(tooltips=[("Begin", "@Start"),
+                                                            ("End", "@Finish"),
+                                                            ("Description", "@description")]))
+        bokeh.io.show(p)
+
     return last_x_for_y
