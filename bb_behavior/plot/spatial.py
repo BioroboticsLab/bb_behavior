@@ -8,7 +8,8 @@ def plot_spatial_values(iterable,
                               x_lim=(0, 100), y_lim=(0, 100),
                               bin_width=None, figsize=(20, 10),
                               cmap="bwr", interpolation="bicubic", metric="mean",
-                              verbose=False, alpha=None, orient="v", save_path=None
+                              verbose=False, alpha=None, orient="v", save_path=None,
+                              suptitle=None, clim=None
                              ):
     """Takes an iterable providing positions and values and plots a heatmap of the values.
     Can take multiple different categories (e.g. cameras) in one iterable.
@@ -37,6 +38,10 @@ def plot_spatial_values(iterable,
             E.g. metric="mean", alpha="count"
         orient: "h" or "v"
             Whether the different categories in the data will be horizontally or vertically aligned.
+        suptitle: string
+            Optional. Main title above all subplots.
+        clim: tuple(float, float)
+            Optional. Fixed colorbar limits.
     """
     if bin_width is None:
         bin_width = max((y_lim[1] - y_lim[0]) / 20, (x_lim[1] - x_lim[0]) / 20)
@@ -94,6 +99,8 @@ def plot_spatial_values(iterable,
     n_categories = len(accumulators.keys())
     grid = (n_categories, 1) if orient == "v" else (1, n_categories)
     fig, axes = plt.subplots(*grid, figsize=figsize)
+    if suptitle:
+        plt.suptitle(suptitle)
     cmap = matplotlib.cm.get_cmap(cmap)
     
     # Split the iteration over the data from the plotting so we can get common limits.
@@ -120,7 +127,10 @@ def plot_spatial_values(iterable,
 
     for (ax, result, result_alpha) in results_to_plot:
         # Common limits.
-        vmin, vmax = colorbar_limits
+        if clim is None:
+            vmin, vmax = colorbar_limits
+        else:
+            vmin, vmax = clim
         normalizer = matplotlib.colors.Normalize(vmin, vmax, clip=False)
         colormapper = matplotlib.cm.ScalarMappable(norm=normalizer, cmap=cmap)
         colormapper.set_array([])
