@@ -2,7 +2,7 @@ import datetime
 import pandas as pd
 import itertools
 
-def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
+def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_event_duration=None,
                  y="y", time="time", color="color", title="Timeline", filename="out.html",
                 colormap=None, meta_keys=None, description_fun=None, fill_gaps=True,
                 backend="plotly"):
@@ -16,6 +16,8 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
             The category determines the color/legend of the time slot.
         min_gap_size: datetime.timedelta
             If not None, determines the maximum time that two timestamps can be apart to be considerend one event.
+        min_event_duration: datetime.timedelta
+            Optional. If given, all events below that duration will be filtered out.
         y: any
             Key to retrieve the Y value from an object yielded by iterable.
             The Y value can be considered a unique measurement unit (e.g. camera).
@@ -53,8 +55,14 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
         meta_values = {m: timepoint[m] for m in meta_keys}
         last_x = last_x_for_y[y_value]
 
+        def should_overwrite_last_event():
+            if not last_x_for_y[y_value]:
+                return False
+            last = last_x_for_y[y_value][-1]
+            return min_event_duration and (last["dt_end"] - last["dt_start"]) < min_event_duration
+
         def push():
-            last_x_for_y[y_value].append(dict(
+            new_event_data = dict(
                 Task=y_value,
                 Resource=category,
                 Start = dt.isoformat(),
@@ -63,7 +71,13 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
                 meta_values_end = meta_values,
                 dt_start = dt,
                 dt_end = dt
-            ))
+            )
+
+            if should_overwrite_last_event():
+                # Overwrite.
+                last_x_for_y[y_value][-1] = new_event_data
+            else:
+                last_x_for_y[y_value].append(new_event_data)
 
         if not last_x or (category != last_x[-1]["Resource"]):
             push()
@@ -73,7 +87,10 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
         delay = dt - last_x["dt_end"]
         if min_gap_size is not None and delay > min_gap_size:
             if fill_gaps:
-                last_x_for_y[y_value].append(dict(
+                if should_overwrite_last_event() and len(last_x_for_y[y_value]) >= 2:
+                    last_x = last_x_for_y[y_value][-2]
+
+                gap_data = dict(
                     Task=y_value,
                     Resource="Gap",
                     Start = last_x["Finish"],
@@ -82,7 +99,11 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1),
                     dt_end = dt,
                     meta_values = None,
                     meta_values_end = None
-                ))
+                )
+                if should_overwrite_last_event():
+                    last_x_for_y[y_value][-1] = gap_data
+                else:
+                    last_x_for_y[y_value].append(gap_data)
             push()
             continue
             
