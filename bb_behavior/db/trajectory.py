@@ -2,6 +2,7 @@ import math
 import numba
 import numpy as np
 import pandas as pd
+import itertools
 
 from .. import utils
 from . import base
@@ -402,13 +403,13 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
                     GROUP BY track_id
                     """)
         
-        cursor.execute("""PREPARE fetch_track AS
-                SELECT timestamp, x_pos_hive, y_pos_hive, orientation_hive
+        cursor.execute("""PREPARE fetch_tracks AS
+                SELECT timestamp, x_pos_hive, y_pos_hive, orientation_hive, track_id
                    FROM bb_detections_2016_stitched 
                    WHERE
-                       track_id = $1
+                       track_id = ANY($1)
                        AND bee_id_confidence > {}
-                       ORDER BY timestamp ASC
+                       ORDER BY track_id, timestamp ASC
                 """.format(confidence_threshold))
     
     progress_bar = lambda x: x
@@ -423,16 +424,25 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
     cursor.execute("EXECUTE fetch_track_ids_for_bee (%s, %s, %s)", query_args)
     track_ids = cursor.fetchall()
     track_ids = list(sorted(track_ids, key=lambda x: x[1]))
-    track_ids = [track_ids[i] for i in range(len(track_ids)-1) if track_ids[i][2] > track_ids[i+1][1]]
+    track_ids = [track_ids[i][0] for i in range(len(track_ids)-1) if track_ids[i][2] > track_ids[i+1][1]]
     
+    cursor.execute("EXECUTE fetch_tracks (%s)", (track_ids, ))
+    all_track_data = cursor.fetchall()
+
+    def iterate_tracks():
+        track_data = []
+        for row in itertools.chain(all_track_data, [(None,)]):
+            if track_data and row[-1] != track_data[-1][-1]:
+                yield track_data[-1][-1], track_data
+                track_data = []
+            track_data.append(row)
+
     all_velocities = []
     
-    for track_id, _, _ in progress_bar(track_ids):
-        cursor.execute("EXECUTE fetch_track (%s)", (track_id, ))
-        track = cursor.fetchall()
+    for _, track in progress_bar(iterate_tracks()):
         if not track:
             continue
-        datetimes, x, y, _ = zip(*track)
+        datetimes, x, y, _, _ = zip(*track)
         timestamps = [dt.timestamp() for dt in datetimes]
         x, y, timestamps = np.diff(x), np.diff(y), np.diff(timestamps)
         assert np.all(timestamps > 0.0)
