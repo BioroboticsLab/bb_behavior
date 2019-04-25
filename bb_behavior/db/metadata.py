@@ -1,5 +1,5 @@
 from . import base
-import datetime
+import datetime, pytz
 import numpy as np
 import pandas as pd
 import psycopg2
@@ -201,6 +201,7 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
                 frame_id = frame.id
                 frame_timestamp = frame.timestamp
                 frame_datetime = datetime.datetime.utcfromtimestamp(frame_timestamp)
+                frame_datetime = pytz.utc.localize(frame_datetime)
                 frame_index = frame.frameIdx
 
                 frame_batch.append((
