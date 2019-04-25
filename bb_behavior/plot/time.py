@@ -49,7 +49,9 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
     
     if meta_keys is not None and description_fun is None:
         description_fun = lambda a, b: ",<br>".join("{}: {}".format(m, a[m]) for m in meta_keys)
-    
+    elif meta_keys is None:
+        meta_keys = {}
+        
     for timepoint in iterable:
         dt, y_value, category = timepoint[time], timepoint[y], timepoint[color]
         meta_values = {m: timepoint[m] for m in meta_keys}
