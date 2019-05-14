@@ -51,7 +51,7 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
         description_fun = lambda a, b: ",<br>".join("{}: {}".format(m, a[m]) for m in meta_keys)
     elif meta_keys is None:
         meta_keys = {}
-        
+
     for timepoint in iterable:
         dt, y_value, category = timepoint[time], timepoint[y], timepoint[color]
         meta_values = {m: timepoint[m] for m in meta_keys}
@@ -67,8 +67,6 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
             new_event_data = dict(
                 Task=y_value,
                 Resource=category,
-                Start = dt.isoformat(),
-                Finish = dt.isoformat(),
                 meta_values = meta_values,
                 meta_values_end = meta_values,
                 dt_start = dt,
@@ -95,8 +93,6 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
                 gap_data = dict(
                     Task=y_value,
                     Resource="Gap",
-                    Start = last_x["Finish"],
-                    Finish = dt.isoformat(),
                     dt_start = last_x["dt_end"],
                     dt_end = dt,
                     meta_values = None,
@@ -109,13 +105,14 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
             push()
             continue
             
-        last_x["Finish"] = dt.isoformat()
         last_x["dt_end"] = dt
         last_x["meta_values_end"] = meta_values
 
     for _, sessions in last_x_for_y.items():
         for s in sessions:
             dt_start, dt_end = s["dt_start"], s["dt_end"]
+            s["Start"] = dt_start.isoformat()
+            s["Finish"] = dt_end.isoformat()
             duration = (dt_end - dt_start)
             meta_values = s["meta_values"]
             meta_values_end = s["meta_values_end"]
@@ -129,7 +126,13 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
         import plotly.offline
         if filename is None:
             plotly.offline.init_notebook_mode()
-            
+        
+        if colormap is not None:
+            import matplotlib.colors
+            converter = matplotlib.colors.ColorConverter()
+            for key, val in colormap.items():
+                colormap[key] = converter.to_rgb(val)
+
         fig = ff.create_gantt(df, colors=colormap, group_tasks=True, index_col="Resource", title=title)
         fig = plotly.offline.plot(fig, filename=filename, image_width=1024, image_height=600)
         if filename is None:
@@ -144,8 +147,8 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
                                                             "Start", "Finish", "color", "description"]])
 
         p = bokeh.plotting.figure(y_range=plot_data_df.Task.unique(), plot_width=1024, plot_height=600,
-                title=title)
-        p.hbar(y="Task", left='dt_start', right='dt_end', fill_color="color", height=0.4, source=source)
+                title=title, x_axis_type='datetime')
+        p.hbar(y="Task", left='dt_start', right='dt_end', fill_color="color", line_color=None, height=0.4, source=source)
         p.add_tools(bokeh.models.tools.HoverTool(tooltips=[("Begin", "@Start"),
                                                             ("End", "@Finish"),
                                                             ("Description", "@description")]))
