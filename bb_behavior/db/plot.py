@@ -122,7 +122,7 @@ def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=
                     continue
                 elif cam_id == 3 and x <= 182:
                     continue
-                yield dict(x=x, y=y, value=age, category=hive_side)
+                yield dict(x=x, y=y, value=age, category=hive_side, bee_id=bee_id)
 
 def plot_age_distribution_from_database(dt_from, dt_to, n_frames=10, verbose=False, sample_positions=None, plot_kwargs=dict()):
     from ..plot.spatial import plot_spatial_values
