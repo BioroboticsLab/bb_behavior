@@ -4,6 +4,33 @@ import queue
 import math
 import numpy as np
 import numba
+import sys
+
+def get_progress_bar_fn(what="auto"):
+    if what == "auto":
+        try:
+            if 'ipykernel' in sys.modules:
+                what = "tqdm_notebook"
+        except:
+            pass
+        if what == "auto":
+            try:
+                import tqdm
+                what = "tqdm"
+            except:
+                pass
+        if what == "auto":
+            what = None
+
+    if what is None:
+        return lambda x, **kwargs: x
+    if what == "tqdm":
+        import tqdm
+        return tqdm.tqdm
+    if what == "tqdm_notebook":
+        import tqdm
+        return tqdm.tqdm_notebook
+    return what
 
 class ParallelPipeline(object):
     
