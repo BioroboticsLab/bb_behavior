@@ -8,7 +8,7 @@ def order_bee_ids(b0, b1):
     return min(b0, b1), max(b0, b1)
 
 
-def evaluate_interaction_model(model_fun, frame_ids, gt_df, label="Model Evaluation"):
+def evaluate_interaction_model(model_fun, frame_ids, gt_df, label="Model Evaluation", **kwargs):
     """Takes an evaluation function and ground truth and assesses the performance of the function.
 
     Arguments:
@@ -19,6 +19,8 @@ def evaluate_interaction_model(model_fun, frame_ids, gt_df, label="Model Evaluat
         gt_df: pandas.DataFrame
             DataFrame containing at least the columns 'frame_id, 'bee_id0', 'bee_id1'.
             Evaluated against model_fun.
+        **kwargs: dict
+            Additional keyword arguments are passed to the model evaluation function.
     """
     results = defaultdict(int)
     
@@ -36,7 +38,7 @@ def evaluate_interaction_model(model_fun, frame_ids, gt_df, label="Model Evaluat
             pairs = set(pairs)
             
             # Prediction.
-            frame_results = model_fun(frame_id, cursor=cursor)
+            frame_results = model_fun(frame_id, cursor=cursor, **kwargs)
             try:
                 frame_results = set(order_bee_ids(*p) for p in frame_results[["bee_id0", "bee_id1"]].itertuples(index=False))
             except:
