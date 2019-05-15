@@ -4,7 +4,7 @@ import psycopg2
 
 def plot_timeline_from_database(
               host="localhost", port=5432, user="reader", password="reader", database="beesbook",
-               table_name="bb_frame_metadata_", title="BeesBook", progress="tqdm_notebook", **kwargs
+               table_name="bb_frame_metadata_", title="BeesBook", progress="tqdm_notebook", plot_kws=dict()
               ):
     """Takes data from either the metadata table or the detections table and plots a timeline with the state of the cameras.
     This can be used as sanity checking for whether the cameras have been recording all the time.
@@ -19,8 +19,8 @@ def plot_timeline_from_database(
             Title of the plot.
         progress: "tqdm", "tqdm_notebook", None or callable
             Callable to display the query progress.
-        **kwargs:
-            Additional arguments are passed to bb_behavior.plot.time.plot_timeline.
+        plot_kws:
+            Additional arguments to be passed to bb_behavior.plot.time.plot_timeline.
     """
     from ..plot.time import plot_timeline
 
@@ -47,9 +47,9 @@ def plot_timeline_from_database(
                     ORDER BY timestamp
                     ;""".format(table_name))
         else:
-            cursor.execute("""SELECT timestamp, frame_id, cam_id FROM {};""".format(table_name))
+            cursor.execute("""SELECT DISTINCT timestamp, cam_id FROM {};""".format(table_name))
             results = {f for f in progress(cursor)}
-            cursor = ((dt, 0, cam_id, 0, 0, frame_id) for (dt, frame_id, cam_id) in progress(sorted(results)))
+            cursor = ((dt, 0, cam_id, 0, 0, 0) for (dt, frame_id, cam_id) in progress(sorted(results)))
             
         def iterate():
             cam_id_idx = defaultdict(int)
@@ -80,7 +80,7 @@ def plot_timeline_from_database(
                       time="time", y="y", color="color",
                       colormap=colormap, meta_keys=("frame_id", "index", "time"),
                       description_fun=make_description,
-                      **kwargs)
+                      **plot_kws)
 
 def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=False):
     from ..db.trajectory import DatabaseCursorContext, get_bee_detections
