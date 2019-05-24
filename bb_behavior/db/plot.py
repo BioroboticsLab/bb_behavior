@@ -4,7 +4,8 @@ import psycopg2
 
 def plot_timeline_from_database(
               host="localhost", port=5432, user="reader", password="reader", database="beesbook",
-               table_name="bb_frame_metadata_", title="BeesBook", progress="tqdm_notebook", plot_kws=dict()
+               table_name="bb_frame_metadata_", title="BeesBook", progress="tqdm_notebook", plot_kws=dict(),
+               use_detections="auto"
               ):
     """Takes data from either the metadata table or the detections table and plots a timeline with the state of the cameras.
     This can be used as sanity checking for whether the cameras have been recording all the time.
@@ -21,11 +22,15 @@ def plot_timeline_from_database(
             Callable to display the query progress.
         plot_kws:
             Additional arguments to be passed to bb_behavior.plot.time.plot_timeline.
+        use_detections: True, False or "auto"
+            Whether to use a table in the bb_detections format or in the metadata format.
+            When True, the table just has to contain timestamp and cam_id.
     """
     from ..plot.time import plot_timeline
 
     from collections import defaultdict
-    use_detections = "bb_detections_" in table_name
+    if use_detections == "auto":
+        use_detections = "bb_detections_" in table_name
     
     if progress == "tqdm":
         import tqdm
@@ -37,7 +42,7 @@ def plot_timeline_from_database(
         progress = lambda x, **kwargs: x
 
     with psycopg2.connect(host=host, port=port, user=user, password=password, database=database,
-                          application_name="timtqdm_notebookeline") as con:
+                          application_name="timeline") as con:
         
         cursor = con.cursor(name="iterator")
         if not use_detections:
@@ -49,7 +54,7 @@ def plot_timeline_from_database(
         else:
             cursor.execute("""SELECT DISTINCT timestamp, cam_id FROM {};""".format(table_name))
             results = {f for f in progress(cursor)}
-            cursor = ((dt, 0, cam_id, 0, 0, 0) for (dt, frame_id, cam_id) in progress(sorted(results)))
+            cursor = ((dt, 0, cam_id, 0, 0, 0) for (dt, cam_id) in progress(sorted(results)))
             
         def iterate():
             cam_id_idx = defaultdict(int)
