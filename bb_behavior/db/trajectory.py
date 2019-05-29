@@ -460,8 +460,7 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         v = np.sqrt(np.square(x) + np.square(y))
         
         if fixup_velocities:
-            timestamps = (timestamps / 0.30).astype(np.int).astype(np.float)
-            timestamps = (0.3333 * (timestamps + 1.0))
+            timestamps = np.round(timestamps * 3.0) / 3.0
         v = v / timestamps
         v = scipy.signal.medfilt(v, kernel_size=3)
         
