@@ -364,7 +364,8 @@ def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None,
 
 def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
                        cursor_is_prepared=False, progress=None,
-                       confidence_threshold=0.1, fixup_velocities=True):
+                       confidence_threshold=0.1, fixup_velocities=True,
+                       additional_columns=set()):
     """Retrieves the velocities of a bee over time.
 
     Arguments:
@@ -382,15 +383,20 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
             Retrieves only detections above this threshold.
         fixup_velocities: bool
             Whether to assume that the timestamps are at 3Hz and smoothing them is okay.
+        additional_columns: iterable(string)
+            Iterable of additional column names to query from the database.
     """
     if not cursor:
         from contextlib import closing
         with closing(base.get_database_connection("get_bee_velocities")) as con:
             return get_bee_velocities(bee_id, dt_from, dt_to, cursor=con.cursor(), cursor_is_prepared=False,
-                                      progress=progress, confidence_threshold=confidence_threshold, fixup_velocities=fixup_velocities)
+                                      progress=progress, confidence_threshold=confidence_threshold, fixup_velocities=fixup_velocities,
+                                      additional_columns=additional_columns)
     
     import pytz
     import scipy.signal
+
+    required_columns = list(set(("timestamp", "x_pos_hive", "y_pos_hive", "orientation_hive", "track_id")) | set(additional_columns))
 
     if not cursor_is_prepared:
         cursor.execute("""PREPARE fetch_track_ids_for_bee AS
@@ -404,13 +410,13 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
                     """)
         
         cursor.execute("""PREPARE fetch_tracks AS
-                SELECT timestamp, x_pos_hive, y_pos_hive, orientation_hive, track_id
+                SELECT {}
                    FROM bb_detections_2016_stitched 
                    WHERE
                        track_id = ANY($1)
                        AND bee_id_confidence > {}
                        ORDER BY track_id, timestamp ASC
-                """.format(confidence_threshold))
+                """.format(", ".join(required_columns), confidence_threshold))
     
     progress_bar = lambda x: x
     if progress == "tqdm":
@@ -442,7 +448,11 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
     for _, track in progress_bar(iterate_tracks()):
         if not track:
             continue
-        datetimes, x, y, _, _ = zip(*track)
+        value_series = tuple(zip(*track))
+        datetimes = value_series[required_columns.index("timestamp")]
+        x = value_series[required_columns.index("x_pos_hive")]
+        y = value_series[required_columns.index("y_pos_hive")]
+
         timestamps = [dt.timestamp() for dt in datetimes]
         x, y, timestamps = np.diff(x), np.diff(y), np.diff(timestamps)
         assert np.all(timestamps > 0.0)
@@ -455,10 +465,14 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         v = v / timestamps
         v = scipy.signal.medfilt(v, kernel_size=3)
         
-        df = pd.DataFrame(dict(
+        columns_dict = dict(
                 velocity=v,
                 time_passed=timestamps,
-                datetime=list(map(lambda x: x.replace(tzinfo=pytz.UTC), datetimes[:-1]))))
+                datetime=list(map(lambda x: x.replace(tzinfo=pytz.UTC), datetimes[:-1])))
+        for additional_column in additional_columns:
+            columns_dict[additional_column] = value_series[required_columns.index(additional_column)][1:]
+
+        df = pd.DataFrame(columns_dict)
         all_velocities.append(df)
     if not all_velocities:
         return None
