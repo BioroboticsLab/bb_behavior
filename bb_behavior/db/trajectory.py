@@ -452,6 +452,8 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
             continue
         value_series = tuple(zip(*track))
         datetimes = value_series[required_columns.index("timestamp")]
+        if len(datetimes) < 2:
+            continue
         x = value_series[required_columns.index("x_pos_hive")]
         y = value_series[required_columns.index("y_pos_hive")]
         
