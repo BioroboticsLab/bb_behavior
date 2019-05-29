@@ -436,10 +436,12 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
     all_track_data = cursor.fetchall()
 
     def iterate_tracks():
+        track_id_index = required_columns.index("track_id")
         track_data = []
-        for row in itertools.chain(all_track_data, [(None,)]):
-            if track_data and row[-1] != track_data[-1][-1]:
-                yield track_data[-1][-1], track_data
+        dummy_row = (None,) * len(required_columns)
+        for row in itertools.chain(all_track_data, [dummy_row]):
+            if track_data and row[track_id_index] != track_data[-1][track_id_index]:
+                yield track_data[-1][track_id_index], track_data
                 track_data = []
             track_data.append(row)
 
@@ -452,7 +454,7 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         datetimes = value_series[required_columns.index("timestamp")]
         x = value_series[required_columns.index("x_pos_hive")]
         y = value_series[required_columns.index("y_pos_hive")]
-
+        
         timestamps = [dt.timestamp() for dt in datetimes]
         x, y, timestamps = np.diff(x), np.diff(y), np.diff(timestamps)
         assert np.all(timestamps > 0.0)
