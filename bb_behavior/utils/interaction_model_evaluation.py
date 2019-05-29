@@ -46,7 +46,7 @@ def evaluate_interaction_model(model_fun, frame_ids, gt_df, label="Model Evaluat
                 print("Warning: Frame results empty. (Frame {})".format(frame_id))
             
             # Total interactions.
-            interactions = find_interactions_in_frame(frame_id, max_distance=40.0,
+            interactions = find_interactions_in_frame(frame_id, max_distance=30.0,
                                                                      confidence_threshold=0.0,
                                                                      cursor=cursor, cursor_is_prepared=True)
             all_candidates = set(order_bee_ids(inter[1], inter[2]) for inter in interactions)                                                        
