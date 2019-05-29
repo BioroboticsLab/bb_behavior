@@ -457,20 +457,21 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         x = value_series[required_columns.index("x_pos_hive")]
         y = value_series[required_columns.index("y_pos_hive")]
         
-        timestamps = [dt.timestamp() for dt in datetimes]
-        x, y, timestamps = np.diff(x), np.diff(y), np.diff(timestamps)
-        assert np.all(timestamps > 0.0)
+        timestamp_deltas = [dt.timestamp() for dt in datetimes]
+        x, y, timestamp_deltas = np.diff(x), np.diff(y), np.diff(timestamp_deltas)
+        assert np.all(timestamp_deltas > 0.0)
         
         v = np.sqrt(np.square(x) + np.square(y))
         
         if fixup_velocities:
-            timestamps = np.round(timestamps * 3.0) / 3.0
-        v = v / timestamps
+            timestamp_deltas = np.round(timestamp_deltas * 3.0) / 3.0
+            timestamp_deltas[timestamp_deltas == 0.0] = 1.0 / 3.0
+        v = v / timestamp_deltas
         v = scipy.signal.medfilt(v, kernel_size=3)
         
         columns_dict = dict(
                 velocity=v,
-                time_passed=timestamps,
+                time_passed=timestamp_deltas,
                 datetime=list(map(lambda x: x.replace(tzinfo=pytz.UTC), datetimes[:-1])))
         for additional_column in additional_columns:
             columns_dict[additional_column] = value_series[required_columns.index(additional_column)][1:]
