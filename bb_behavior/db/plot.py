@@ -1,3 +1,4 @@
+import datetime
 import numpy as np
 import pandas as pd
 import psycopg2
@@ -87,10 +88,10 @@ def plot_timeline_from_database(
                       description_fun=make_description,
                       **plot_kws)
 
-def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=False):
+def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=False, check_is_alive=True):
     from ..db.trajectory import DatabaseCursorContext, get_bee_detections
     from ..db.sampling import sample_frame_ids, get_bee_ids
-    from ..db.metadata import get_frame_metadata
+    from ..db.metadata import get_frame_metadata, get_alive_bees
     from bb_utils.meta import BeeMetaInfo
     from bb_utils.ids import BeesbookID
     bb_meta_info = BeeMetaInfo()
@@ -107,6 +108,15 @@ def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=
         bee_ids = get_bee_ids(frames)
         if verbose:
             print("Found {} bee IDs in the data for those frames.".format(len(bee_ids)))
+
+        bee_alive_cache = dict()
+        def bee_is_alive(bee_id, dt):
+            if not check_is_alive:
+                return True
+            if not dt in bee_alive_cache:
+                bee_alive_cache[dt] = get_alive_bees(dt, dt + datetime.timedelta(days=1), cursor=cursor)
+            return bee_id in bee_alive_cache[dt]
+
         for bee_id in bee_ids:
             detections = get_bee_detections(bee_id, frames=list(map(int, frames)), use_hive_coords=True,
                                             cursor=cursor, cursor_is_prepared=True, make_consistent=False)
@@ -119,6 +129,8 @@ def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=
                 age = bb_meta_info.get_age(bb_id, dt.replace(tzinfo=None))
                 if pd.isnull(age) or age.days < 0:
                     continue
+                if not bee_is_alive(bee_id, dt):
+                    continue
                 age = age.days
                 cam_id = frame_id_to_cam_id[detection[1]]
                 hive_side = ["Cam 0/1", "Cam 2/3"][cam_id // 2]
@@ -127,15 +139,14 @@ def fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=10, verbose=
                     continue
                 elif cam_id == 3 and x <= 182:
                     continue
-                yield dict(x=x, y=y, value=age, category=hive_side, bee_id=bee_id)
+                yield dict(x=x, y=y, value=age, category=hive_side, bee_id=bee_id, datetime=dt)
 
 def plot_age_distribution_from_database(dt_from, dt_to, n_frames=10, verbose=False, sample_positions=None, plot_kwargs=dict()):
     from ..plot.spatial import plot_spatial_values
     sample_positions = sample_positions or list(fetch_sampled_age_values_from_database(dt_from, dt_to, n_frames=n_frames, verbose=verbose))
     if verbose:
         print("Total samples: {}".format(len(sample_positions)))
-    plot_kwargs = {**dict(cmap="viridis", figsize=(20, 20)), **plot_kwargs}
+    plot_kwargs = {**dict(cmap="viridis", figsize=(20, 20), metric="mean", alpha="count"), **plot_kwargs}
     plot_spatial_values(sample_positions,
-                          metric="mean", alpha="count",
                           bin_width=5, interpolation="none", verbose=False,
                          x_lim=(0, 350), y_lim=(0, 240), **plot_kwargs)
