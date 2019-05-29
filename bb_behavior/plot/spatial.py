@@ -121,8 +121,9 @@ def plot_spatial_values(iterable,
             result_alpha /= result_alpha.max()
             if alpha in ("var", "sample_var", "std"):
                 result_alpha = 1.0 - result_alpha
-        vmin, vmax = np.percentile(result.flatten(), (1, 99))
-        colorbar_limits = min(colorbar_limits[0], vmin), max(colorbar_limits[1], vmax)
+        vmin, vmax = np.percentile(result[~np.isnan(result)].flatten(), (1, 99))
+        if not np.any(np.isnan([vmin, vmax])):
+            colorbar_limits = min(colorbar_limits[0], vmin), max(colorbar_limits[1], vmax)
         results_to_plot.append((ax, result, result_alpha))
 
     for (ax, result, result_alpha) in results_to_plot:
