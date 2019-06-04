@@ -110,6 +110,12 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
         last_x["meta_values_end"] = meta_values
 
     for _, sessions in last_x_for_y.items():
+        if len(sessions) == 0:
+            continue
+        # Check if last session doesn't meet min length criteria.
+        last = sessions[-1]
+        if min_event_duration and (last["dt_end"] - last["dt_start"]) < min_event_duration:
+            del sessions[-1]
         for s in sessions:
             dt_start, dt_end = s["dt_start"], s["dt_end"]
             s["Start"] = dt_start.isoformat()
@@ -121,7 +127,10 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
             if description_fun is not None and (meta_values or meta_values_end):
                 s["description"] += "\n<br>" + description_fun(meta_values, meta_values_end)
                 
-    df = list(itertools.chain(*list(last_x_for_y.values())))
+    df = list(itertools.chain(*list(s for s in last_x_for_y.values() if s is not None)))
+    if len(df) == 0:
+        return None
+        
     if backend == "plotly":
         import plotly.figure_factory as ff
         import plotly.offline
