@@ -87,7 +87,8 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
         delay = dt - last_x["dt_end"]
         if min_gap_size is not None and delay > min_gap_size:
             if fill_gaps:
-                if should_overwrite_last_event() and len(last_x_for_y[y_value]) >= 2:
+                overwrite_possible = should_overwrite_last_event() and len(last_x_for_y[y_value]) >= 2
+                if overwrite_possible:
                     last_x = last_x_for_y[y_value][-2]
 
                 gap_data = dict(
@@ -98,7 +99,7 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
                     meta_values = None,
                     meta_values_end = None
                 )
-                if should_overwrite_last_event():
+                if overwrite_possible:
                     last_x_for_y[y_value][-1] = gap_data
                 else:
                     last_x_for_y[y_value].append(gap_data)
