@@ -429,8 +429,11 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
     query_args = (dt_from, dt_to, bee_id)
     cursor.execute("EXECUTE fetch_track_ids_for_bee (%s, %s, %s)", query_args)
     track_ids = cursor.fetchall()
+    if not track_ids:
+        return None
+
     track_ids = list(sorted(track_ids, key=lambda x: x[1]))
-    track_ids = [track_ids[i][0] for i in range(len(track_ids)-1) if track_ids[i][2] > track_ids[i+1][1]]
+    track_ids = [track_ids[0][0]] + [track_ids[i][0] for i in range(1, len(track_ids)) if track_ids[i][1] > track_ids[i-1][2]]
     
     cursor.execute("EXECUTE fetch_tracks (%s)", (track_ids, ))
     all_track_data = cursor.fetchall()
