@@ -159,6 +159,8 @@ class BeesbookVideoManager():
         Returns:
             frame: np.array
         """
+        if frame_id is None:
+            return None
         return skimage.io.imread(self.get_frame_id_path(frame_id), as_gray=True, plugin="matplotlib")
 
     def extract_frames_from_metadata(self, frame_ids, frame_indices, video_names):
