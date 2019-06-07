@@ -159,7 +159,7 @@ class BeesbookVideoManager():
         Returns:
             frame: np.array
         """
-        return skimage.io.imread(self.get_frame_id_path(frame_id), as_gray=True)
+        return skimage.io.imread(self.get_frame_id_path(frame_id), as_gray=True, plugin="matplotlib")
 
     def extract_frames_from_metadata(self, frame_ids, frame_indices, video_names):
         """Takes lists of frame IDs and metadata (coming from db.get_frame_metadata)
