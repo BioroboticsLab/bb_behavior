@@ -136,9 +136,9 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
                 xs.append(bee[idx][2])
                 ys.append(bee[idx][3])
                 if is_focal_frame:
-                    colors.append("white")
+                    colors.append((1.0, 1.0, 1.0))
                 else:
-                    colors.append(["gray", "silver"][det_idx])
+                    colors.append([(0.5, 0.5, 0.5), (0.75, 0.75, 0.75)][det_idx])
         if not xs:
             xs, ys, colors = None, None, None
         else:
