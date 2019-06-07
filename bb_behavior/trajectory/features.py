@@ -31,6 +31,12 @@ def feature_angle_to_geometric(trajectories):
         trajectories[idx] = np.concatenate((traj[:, :3, :], cos, traj[:, 3:4, :]), axis=1)
 
 @jit
+def feature_egomotion(trajectories):
+    for idx, traj in enumerate(trajectories):
+        traj[0, :4, :-1] = np.diff(traj[0, :4, :], axis=1)
+        trajectories[idx] = traj[:, :, :-1]
+
+@jit
 def trajectories_to_features(trajectories, feature_transformer):
     for ft in feature_transformer:
         ft(trajectories)
@@ -66,6 +72,9 @@ class FeatureTransform(object):
     @staticmethod
     def Angle2Geometric():
         return FeatureTransform(fun=feature_angle_to_geometric, input=("x", "y", "r", "mask"), output=("x", "y", "r_sin", "r_cos", "mask"))
+    @staticmethod
+    def Egomotion():
+        return FeatureTransform(fun=feature_egomotion, input=("x", "y", "r_sin", "r_cos", "mask"))
     def get_output(self):
         return self._output
     def __call__(self, x):
