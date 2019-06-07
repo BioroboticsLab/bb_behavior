@@ -121,8 +121,12 @@ class BeesbookVideoManager():
                 start_frame=start_frame, n_frames=n_frames,
                 command=self.command, codec=self.codec)
             
-            for (frame_id, filepath) in zip(frame_ids, os.listdir(dirpath)):
-                shutil.move(dirpath+"/"+filepath, self.cache_path + str(frame_id) + ".bmp")
+            for (frame_id, filepath) in zip(frame_ids, sorted(os.listdir(dirpath))):
+                full_filepath = dirpath+"/"+filepath
+                if os.path.getsize(full_filepath) > 0:
+                    shutil.move(full_filepath, self.cache_path + str(frame_id) + ".bmp")
+                else:
+                    print("Zero-size file created by ffmpeg.")
 
     def get_frame_id_path(self, frame_id):
         """
