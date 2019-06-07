@@ -51,13 +51,13 @@ def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_befor
         for idx, (_, fc_id) in enumerate(frame_ids_fcs):
             # A yet unseen frame container? Note that they are sorted.
             if idx == 0 or (frame_ids_fcs[idx - 1][1] != fc_id):
-                video_manager.clear_video_cache(retain_last_n_requests=4)
+                video_manager.clear_video_cache(retain_last_n_requests=1)
                 new_frame_ids_neighbours = [(frame_ids_fcs[i][0], get_neighbour_frames_for_index(i)) \
                                             for i in range(idx, len(frame_ids_fcs)) \
                                             if frame_ids_fcs[i][1] == fc_id]
                 new_frame_ids = set()
                 for (_, neighbours) in new_frame_ids_neighbours:
-                    new_frame_ids |= {n[1] for n in neighbours}
+                    new_frame_ids |= {n[1] for n in neighbours if n[1] is not None}
                 if verbose:
                     print("New frame container (id={})! Caching {} frames.".format(fc_id, len(new_frame_ids)))
                 video_manager.cache_frames(new_frame_ids, cursor=prepared_cursor, verbose=verbose)
