@@ -160,6 +160,10 @@ def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, r
     print(sklearn.metrics.classification_report(Y_ground_truth, Y_classes))
 
     if n_threshold_curves > 0:
+        if len(np.unique(Y_classes)) > 2:
+            print("Warning: Multi-class not supported. Plotting curves for class 1.")
+            Y_classes = (Y_classes == 1).astype(np.int)
+            Y_ground_truth = (Y_ground_truth == 1).astype(np.int)
         fig, axes = plt.subplots(1, n_threshold_curves, figsize=(7 * n_threshold_curves, 7))
         ax_idx = 0
         for (check, fun) in zip((roc_auc, precision_recall, plot_thresholds), (plot_roc_curve, plot_precision_recall_curve, plot_thresholds_curve)):
