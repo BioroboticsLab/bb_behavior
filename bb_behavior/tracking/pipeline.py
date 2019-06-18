@@ -106,7 +106,7 @@ def get_default_pipeline(localizer_threshold=None, verbose=False):
         outputs += [pipeline.objects.CrownOverlay]
     conf = pipeline.pipeline.get_auto_config()
     if localizer_threshold is not None:
-        conf['Localizer']['threshold'] = localizer_threshold
+        conf['Localizer']['threshold_tag'] = localizer_threshold
     decoder_pipeline = pipeline.Pipeline([pipeline.objects.Image],  # inputs
                         outputs,  # outputs
                         **conf)
@@ -246,10 +246,10 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
         if n_detections > 0:
             frame_data = {
                 "id": detection_ids,
-                "localizerSaliency": required_results.saliencies.flatten(),
+                "localizerSaliency": required_results.tag_saliencies.flatten(),
                 "beeID": decoded_ids,
-                "xpos": required_results.positions[:, 1] / scale,
-                "ypos": required_results.positions[:, 0] / scale,
+                "xpos": required_results.tag_positions[:, 1] / scale,
+                "ypos": required_results.tag_positions[:, 0] / scale,
                 "camID": [cam_id] * n_detections, 
                 "zrotation": required_results.orientations[:, 0],
                 "timestamp": [ts] * n_detections,
