@@ -70,9 +70,9 @@ def get_data_for_frame_id(timestamp, frame_id, cam_id,
 
 @numba.njit
 def probability_distance_fun(xy0, xy1):
-    return probability_distance_fun_(xy0, xy1, 2.04332357, -1.56938987, 1.92212738, -11.87978937,
+    return probability_distance_fun_(xy0, xy1, 2.19928889, -1.57782416, 1.75782411, -13.51532839,
                                    7.31, 12.04) # The min/max distance are 99 percentiles.
-high_recall_threshold = 0.45398181  # 85% recall, 18% precision
+high_recall_threshold = 0.45185223  # 85% recall, 21% precision
 
 def get_data_for_frame_id_high_recall(*args, min_distance=high_recall_threshold, 
                                         max_distance=2.0, distance_func='auto', **kwargs):
