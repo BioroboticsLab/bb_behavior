@@ -74,10 +74,14 @@ def probability_distance_fun(xy0, xy1):
                                    6.843017734527588, 28.133578964233394)
 high_recall_threshold = 0.45398181  # 85% recall, 18% precision
 
-def get_data_for_frame_id_high_recall(*args, **kwargs):
+def get_data_for_frame_id_high_recall(*args, min_distance=high_recall_threshold, 
+                                        max_distance=2.0, distance_func='auto', **kwargs):
+    if distance_func == 'auto':
+        distance_func = probability_distance_fun
+
     return get_data_for_frame_id(*args, 
-                     max_distance=2.0, min_distance=high_recall_threshold,
-                     distance_func=probability_distance_fun,
+                     min_distance=min_distance, max_distance=max_distance,
+                     distance_func=distance_func,
                      **kwargs)
 
 def process_frame_with_prefilter(frame_info, **kwargs):
