@@ -154,7 +154,7 @@ def get_frames_for_interaction(frame_id, bee_id0, bee_id1, n_frames=31, width=20
     
     return frames, [f[1] for f in neighbour_frames]
 
-def generate_frames_for_interactions(interactions):
+def generate_frames_for_interactions(interactions, frame_width=None, n_frames=None):
     """Takes a list of frame_ids and bee_ids and wraps get_frames_for_interaction as a generator.
 
     Arguments:
@@ -172,7 +172,12 @@ def generate_frames_for_interactions(interactions):
     meta = bb_utils.meta.BeeMetaInfo()
     for i in range(len(interactions)):
         frame_id, bee_id0, bee_id1 = interactions[i][:3]
-        frame_info = get_frames_for_interaction(int(frame_id), bee_id0, bee_id1)
+        kwargs = dict()
+        if frame_width is not None:
+            kwargs["width"] = frame_width
+        if n_frames is not None:
+            kwargs["n_frames"] = n_frames
+        frame_info = get_frames_for_interaction(int(frame_id), bee_id0, bee_id1, **kwargs)
         
         if frame_info is None:
             continue
@@ -182,8 +187,10 @@ def generate_frames_for_interactions(interactions):
 
 
 class GUI():
-    def __init__(self, name="Unknown"):
+    def __init__(self, name="Unknown", custom_save_path=None, custom_positive_labels=None):
         import ipywidgets
+
+        self.ground_truth_save_path = custom_save_path or ground_truth_save_path
 
         self.image_widget = ipywidgets.Output(layout={'border': '1px solid black'})
         self.image_widget2 = ipywidgets.Output()
@@ -191,16 +198,21 @@ class GUI():
         self.frame_bounds_widgets = [ipywidgets.Output(), ipywidgets.Output()]
 
         self.name_widget = ipywidgets.Text(name)
-        self.ok = ipywidgets.Button(description="\tTrophallaxis", icon="check-circle")
-        self.ok.on_click(lambda x: self.on_click(action="trophallaxis"))
-        self.antennation = ipywidgets.Button(description="\tAntennation", icon="check-circle")
-        self.antennation.on_click(lambda x: self.on_click(action="antennation"))
+        # Default buttons.
         self.nope = ipywidgets.Button(description="\tNothing", icon="ban")
         self.nope.on_click(lambda x: self.on_click(action="nothing"))
-        self.idk = ipywidgets.Button(description="\tMaybe troph.", icon="puzzle-piece")
-        self.idk.on_click(lambda x: self.on_click(action="unsure"))
         self.skip = ipywidgets.Button(description="\tSkip", icon="recycle")
         self.skip.on_click(lambda x: self.on_click(action="skip"))
+        # Other (maybe custom) buttons.
+        labels = custom_positive_labels or ["Trophallaxis", "Antennation", "Unsure"]
+        label_symbols = ["check-circle", "check-circle", "puzzle-piece"]
+        self.buttons = []
+        for idx, label in enumerate(labels):
+            label_action = label.lower()
+            symbol = label_symbols[idx] if idx < len(label_symbols) else "check-circle"
+            button = ipywidgets.Button(description="\t" + label, icon=symbol)
+            button.on_click(lambda x: self.on_click(action=label_action))
+            self.buttons.append(button)
 
         self.frame_idx_slider = ipywidgets.IntRangeSlider(value=[0, 0], step=1, description="Frames:", min=0,
             readout=True, readout_format="d", continuous_update=False)
@@ -211,7 +223,7 @@ class GUI():
         display(self.image_widget)
         display(ipywidgets.VBox([
                     ipywidgets.HBox([self.frame_idx_slider]),
-                    ipywidgets.HBox([self.ok, self.antennation, self.idk]),
+                    ipywidgets.HBox(self.buttons),
                     ipywidgets.HBox([self.nope, self.skip])
                     ])
             )
@@ -288,7 +300,7 @@ class GUI():
             frame_id, bee_id0, bee_id1 = self.interactions[self.current_interaction_idx][:3]
             event_id = misc.generate_64bit_id()
 
-            with open(ground_truth_save_path, 'a') as file:
+            with open(self.ground_truth_save_path, 'a') as file:
                 # Write only one frame if begin and end are not specified (assume middle frame).
                 if end_idx <= begin_idx and action != "nothing":
                     file.write("{frame_id},{bee_id0},{bee_id1},{name},{now},{action},{ground_truth_data_version}, {event_id}, 0\n".format(
@@ -313,10 +325,12 @@ class GUI():
                             action=action, frame_id=frame_id, bee_id0=bee_id0, bee_id1=bee_id1)
         self.view_next_interaction(info_text)
 
-    def __call__(self, interactions, max_prefetch=20):
+    def __call__(self, interactions, max_prefetch=20, frame_width=None, n_frames=None):
         import prefetch_generator
         self.interactions = interactions
-        self.generator = prefetch_generator.BackgroundGenerator(generate_frames_for_interactions(interactions),
-                                                                   max_prefetch=max_prefetch)
+        self.generator = prefetch_generator.BackgroundGenerator(generate_frames_for_interactions(interactions,
+                                                                    frame_width=frame_width,
+                                                                    n_frames=n_frames),
+                                                                max_prefetch=max_prefetch)
         self.view_next_interaction()
 
