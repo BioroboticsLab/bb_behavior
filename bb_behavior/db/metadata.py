@@ -30,7 +30,8 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
             If 'return_dataframe' is true, returns a list with one tuple per row of the data frame.
     """
     if cursor is None:
-        with base.get_database_connection("Frame metadata") as con:
+        from contextlib import closing
+        with closing(base.get_database_connection("Frame metadata")) as con:
             return get_frame_metadata(frames, cursor=con.cursor(), cursor_is_prepared=False, return_dataframe=return_dataframe,
                 include_video_name=include_video_name, warnings_as_errors=warnings_as_errors)
     if not cursor_is_prepared:
@@ -98,7 +99,8 @@ def get_alive_bees(dt_from, dt_to, cursor=None):
             All bee IDs (ferwar format) that are alive between the given timestamps.
     """
     if cursor is None:
-        with base.get_database_connection("Frame metadata") as con:
+        from contextlib import closing
+        with closing(base.get_database_connection("get_alive_bees")) as con:
             return get_alive_bees(dt_from, dt_to, cursor=con.cursor())
     cursor.execute("SELECT bee_id from alive_bees_2016 WHERE timestamp >= %s and timestamp < %s ", (dt_from, dt_to))
     bee_ids = {result[0] for result in cursor.fetchall()}
