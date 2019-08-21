@@ -1,1 +1,2 @@
 from .fourier_angle import calculate_fourier_angle_from_waggle_run_images
+from .worldmapping import decode_waggle_dance_angle, plot_hive_map, plot_waggle_locations
