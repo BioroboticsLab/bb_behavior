@@ -294,7 +294,7 @@ def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=
         mask = interpolate_trajectory(trajectory)
     return trajectory, mask
 
-def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None, make_consistent=True, interpolate=True):
+def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consistent=True, interpolate=True):
     """Retrieves the coherent, short track for a track ID that was produced by the tracking mapping.
     The track can contain gaps and might not start at the beginning of the given frames.
 
@@ -323,6 +323,7 @@ def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None,
     if cursor is None:
         with base.get_database_connection(application_name="get_track") as db:
             return get_track(track_id, frames,
+                make_consistent=make_consistent, interpolate=interpolate,
                 use_hive_coords=use_hive_coords, cursor=db.cursor())
     coords = ("x_pos", "y_pos", "orientation")
     if use_hive_coords:
@@ -346,8 +347,9 @@ def get_track(track_id, frames, use_hive_coords=False, bee_id=None, cursor=None,
            "WHERE {} track_id = %s ORDER BY timestamp ASC".format(*coords, frame_condition), query_arguments)
     track = cursor.fetchall()
     detection_keys = {t[2]: t[0] for t in track}
+    track = [t[1:] for t in track]
     if make_consistent:
-        track = get_consistent_track_from_detections(frames, [t[1:] for t in track])
+        track = get_consistent_track_from_detections(frames, track)
 
     keys = []
     for t in track:
