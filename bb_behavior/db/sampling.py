@@ -134,6 +134,33 @@ def get_track_ids(frames, cursor=None):
     track_ids = [int(t[0]) for t in track_ids]
     return track_ids
 
+def get_track_ids_for_bee(bee_id, dt_from, dt_to, n_track_ids=None, cursor=None):
+    """Retrieves all unique track IDs for a timespan from the database that belong to a certain bee.
+    Arguments:
+        bee_id: int
+            Beesbook ID (ferwar style).
+        dt_from, dt_to: datetime.datetime
+            Points in time between which all track IDs will be returned.
+        n_track_ids: int
+            Optional. If given, n_track_ids random IDs will be sampled and returned.
+        cursor: psycopg2.Cursor
+            Optional database connection cursor.
+    Returns:
+        list(int)
+            List containing the uint64 track IDs.
+    """
+    if cursor is None:
+        with base.get_database_connection(application_name="get_track_ids_for_bee") as db:
+            return get_track_ids_for_bee(bee_id, dt_from, dt_to, n_track_ids=n_track_ids, cursor=db.cursor())
+
+    cursor.execute("SELECT DISTINCT track_id FROM bb_detections_2016_stitched WHERE bee_id = %s AND "
+                    "timestamp >= %s AND timestamp < %s", (int(bee_id), dt_from, dt_to))
+    track_ids = cursor.fetchall()
+    track_ids = [int(t[0]) for t in track_ids]
+    if (n_track_ids is not None) and len(track_ids) > n_track_ids:
+        track_ids = np.random.choice(track_ids, size=n_track_ids, replace=False)
+    return track_ids
+
 def get_bee_ids(frames, cursor=None):
     """Retrieves all unique bee IDS from the database that occur in a given set of frame_ids.
     Arguments:
