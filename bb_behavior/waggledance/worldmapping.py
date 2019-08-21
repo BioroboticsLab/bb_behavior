@@ -52,7 +52,7 @@ def decode_waggle_dance_angle(hive_angle, time, distance=10.0, latitude=52.45713
     world_angle = azimuth_rad + hive_angle
     return world_angle, distance * np.cos(world_angle), distance * np.sin(world_angle)
 
-def get_default_map_image():
+def get_default_map_image(path="/mnt/storage/david/data/beesbook/foragergroups/map.png"):
     """Returns a screenshot of a map as well as the coordinates in pixels of the hive and a resolution.
 
     Returns:
@@ -63,7 +63,7 @@ def get_default_map_image():
         meters_to_pixels: float
             Scale factor that can be taken times meters (meters_to_pixels * 10m) = ?? pixels.
     """
-    map_image = plt.imread("/mnt/storage/david/data/beesbook/foragergroups/map.png")
+    map_image = plt.imread(path)
     map_hive_x, map_hive_y = 2185, 1563
     meters_to_pixels = 320.0 / 100.0
     return map_image, map_hive_x, map_hive_y, meters_to_pixels
@@ -86,7 +86,7 @@ def plot_hive_map(map_image=None, map_hive_x=None, map_hive_y=None, figsize=(16,
 def plot_waggle_locations(world_locations, ax=None, map_image=None, map_hive_x=None, map_hive_y=None, meters_to_pixels=None, color="g", kde_cmap="Greens"):
     """Takes a list of world locations (e.g. output from decode_waggle_dance) and plots them on an axis.
     """
-    
+
     if map_image is None:
         map_image, map_hive_x, map_hive_y, meters_to_pixels= get_default_map_image()
     
