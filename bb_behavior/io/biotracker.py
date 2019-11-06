@@ -100,15 +100,17 @@ def load_tracks(tracks_filename, using_bee_ids=True):
     
     return track_map
 
-def load_annotations(annotations_filename):
+def load_annotations(annotations_filename, ignore_annotations_without_track=False):
     with open(annotations_filename, "r") as f:
         annotation_data = json.load(f)
 
     annotations_list = []
     for annotation in annotation_data:
-        if not "origin_track_id" in annotation:
+        if ignore_annotations_without_track and (not "origin_track_id" in annotation):
             continue
-        track_id0 = annotation["origin_track_id"]
+        track_id0 = None
+        if "origin_track_id" in annotation:
+            track_id0 = annotation["origin_track_id"]
         start_frame = annotation["start_frame"]
         end_frame = annotation["end_frame"]
         
@@ -116,12 +118,27 @@ def load_annotations(annotations_filename):
         if "end_track_id" in annotation:
             track_id1 = annotation["end_track_id"]
 
+        origin_x, origin_y = None, None
+        end_x, end_y = None, None
+        if "origin_x" in annotation:
+            origin_x = annotation["origin_x"]
+        if "origin_y" in annotation:
+            origin_y = annotation["origin_y"]
+        if "end_x" in annotation:
+            end_x = annotation["end_x"]
+        if "end_y" in annotation:
+            end_y = annotation["end_y"]
+
         annotations_list.append(dict(
             track_id0 = track_id0,
             track_id1 = track_id1,
             comment = annotation["comment"],
             start_frame = start_frame,
-            end_frame = end_frame
+            end_frame = end_frame,
+            origin_x=origin_x,
+            origin_y=origin_y,
+            end_x=end_x,
+            end_y=end_y
         ))
     return pd.DataFrame(annotations_list)
 
@@ -170,7 +187,7 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
     
     track_map = load_tracks(tracks_filename)
     all_frame_ids = track_map["frame_ids"]
-    annotations_df = load_annotations(annotations_filename)
+    annotations_df = load_annotations(annotations_filename, ignore_annotations_without_track=True)
     
     additional_columns = []
     for i in range(annotations_df.shape[0]):
