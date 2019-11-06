@@ -16,7 +16,7 @@ dep_links = [str(req_line.url) for req_line in install_reqs]
 
 setup(
     name='bb_behavior',
-    version='0.1',
+    version='0.2',
     description='BeesBook trajectory, image, and behavior analysis',
     author='David Dormagen',
     author_email='david.dormagen@fu-berlin.de',
