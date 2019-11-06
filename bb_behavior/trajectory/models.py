@@ -53,7 +53,7 @@ class CNN1D(torch.nn.Module):
     def __init__(self, n_features, timesteps, num_layers=2, n_channels=9,\
                  kernel_size=5, conv_dropout=0.33, max_pooling=True, batch_norm=True,
                  initial_batch_size=64, grow_batch_size=True, initial_learning_rate=0.001, learning_rate_decay=0.98, train_epochs=100,
-                 cuda=True, optimizer="adam", class_weights=None, n_classes=2, fixup_init=True):
+                 cuda=True, optimizer="adam", class_weights=None, n_classes=2, fixup_init=True, padding=True, stride_every_n_layers=0):
         super().__init__()
 
         self.num_layers = num_layers
@@ -69,6 +69,7 @@ class CNN1D(torch.nn.Module):
         self.optimizer = optimizer
         self.class_weights = class_weights
         self.n_classes = n_classes
+        self.padding = padding
 
         self.convs = []
         self.n_features = n_features
@@ -82,13 +83,22 @@ class CNN1D(torch.nn.Module):
                 self.convs.append(torch.nn.BatchNorm1d(channels[i]))
             if fixup_init:
                 self.convs.append(Fixup())
-            self.convs.append(torch.nn.Conv1d(channels[i], channels[i+1], kernel_size=kernel_size, padding=kernel_size // 2))
+            layer_padding = 0
+            if padding == True:
+                layer_padding = kernel_size // 2
+            stride = 1
+            if stride_every_n_layers > 0 and (i + 1) % stride_every_n_layers == 0 and self.o_depth >= 4:
+                stride = 2
+            self.convs.append(torch.nn.Conv1d(channels[i], channels[i+1], kernel_size=kernel_size, padding=layer_padding, stride=stride))
             self.convs.append(torch.nn.SELU())
             if i > 0 and i < len(channels) - 1 and conv_dropout > 0.001:
                 self.convs.append(torch.nn.AlphaDropout(p=conv_dropout))
+            self.o_depth -= 2 * (kernel_size // 2 - layer_padding)
+            self.o_depth = (self.o_depth // stride) + self.o_depth % stride
             if max_pooling:
                 self.convs.append(torch.nn.MaxPool1d(2))
                 self.o_depth = self.o_depth // 2
+            print(self.o_depth, channels[i+1])
         self.convs = torch.nn.Sequential(*self.convs)
         
         self.out_channels = channels[-1]
@@ -257,7 +267,8 @@ class CNN1D(torch.nn.Module):
                             weights = torch.autograd.Variable(weights)
 
                         batch_Y = CNN1D.to_onehot_buffer(self.n_classes, batch_Y)
-
+                    else:
+                        assert (batch_Y.shape == Y_predicted.shape)
                     if label_smoothing > 0.0:
                         correct_labels_idx = batch_Y == 1.0
                         batch_Y[correct_labels_idx] -= label_smoothing
