@@ -16,7 +16,7 @@ def get_first_frame_from_video(vid_file):
         return None
     return image
 
-def extract_frames_from_video(video_path, target_directory, start_frame=0, n_frames=1, codec="hevc_cuvid", command="ffmpeg", scale=1.0, framerate=3):
+def extract_frames_from_video(video_path, target_directory, start_frame=0, n_frames=1,codec="hevc_cuvid", command="ffmpeg", scale=1.0, framerate=3, output_format="bmp"):
 
     import subprocess
 
@@ -33,7 +33,7 @@ def extract_frames_from_video(video_path, target_directory, start_frame=0, n_fra
     call_args = codec + [
         "-y", "-v", "24", "-r", str(framerate), "-i", video_path, "-start_number", "0",
         "-vf", "select=gte(n\\,{start_frame}){scale}".format(start_frame=start_frame, scale=scale), "-qscale:v", "2",
-        "-vframes", str(n_frames), "{target_directory}/%04d.bmp".format(target_directory=target_directory)]
+        "-vframes", str(n_frames), "{target_directory}/%04d.{output_format}".format(target_directory=target_directory, output_format=output_format)]
 
     subprocess.run([command] + call_args, stderr=subprocess.PIPE)
     
