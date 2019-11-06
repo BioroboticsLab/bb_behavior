@@ -86,7 +86,8 @@ def plot_roc_curve(Y_true, Y_predicted, ax=None):
 
 def plot_thresholds_curve(Y_true, Y_predicted, tpr=None, thresholds=None, ax=None):
     if tpr is None:
-        _, tpr, thresholds = sklearn.metrics.roc_curve(Y_true, Y_predicted)
+        thresholds = np.linspace(0.0, 1.0, 100)
+        tpr = np.array([sklearn.metrics.recall_score(Y_true, Y_predicted >= t) for t in thresholds])
     
     percentage_thresholds = np.linspace(0.0, 1.0, num=thresholds.shape[0])
     percentages = [(np.sum(Y_predicted >= t) / Y_predicted.shape[0]) for t in percentage_thresholds]
@@ -142,7 +143,7 @@ def plot_precision_recall_curve(Y_true, Y_predicted, ax=None):
 
     return precision, recall, thresholds
 
-def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, roc_auc=True, precision_recall=True, plot_thresholds=True, figsize=None):
+def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, roc_auc=True, precision_recall=True, plot_thresholds=True, figsize=None, binary_threshold=0.5):
     n_threshold_curves = int(roc_auc) + int(precision_recall) + int(plot_thresholds)
     if n_threshold_curves > 0 and not has_proba:
         raise ValueError("Threshold curves need probability scores.")
@@ -153,7 +154,7 @@ def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, r
             Y_classes = np.argmax(Y_probas, axis=1)
             Y_probas = Y_probas[:, 1]
         else:
-            Y_classes = Y_probas > 0.5
+            Y_classes = Y_probas > binary_threshold
     else:
         Y_classes = Y_probas
     
@@ -168,7 +169,10 @@ def display_classification_report(Y_predicted, Y_ground_truth, has_proba=True, r
         ax_idx = 0
         for (check, fun) in zip((roc_auc, precision_recall, plot_thresholds), (plot_roc_curve, plot_precision_recall_curve, plot_thresholds_curve)):
             if check:
-                fun(Y_ground_truth, Y_probas, ax=axes[ax_idx])
+                ax = axes
+                if n_threshold_curves > 1:
+                    ax = axes[ax_idx]
+                fun(Y_ground_truth, Y_probas, ax=ax)
                 ax_idx += 1
         fig.tight_layout()
         plt.show()
