@@ -94,7 +94,11 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, frame_container_id=None, cur
 def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_threshold=0.1, sample_fraction=1.0, cursor=None):
     if cursor is None:
         with base.get_database_connection(application_name="get_detections_for_frames") as db:
-            return get_detections_for_frames(frames, cursor=db.cursor("detection cursor"))
+            yield from get_detections_for_frames(frames, cursor=db.cursor("detection cursor"),
+                    use_hive_coordinates=use_hive_coordinates,
+                    confidence_threshold=confidence_threshold,
+                    sample_fraction=sample_fraction)
+            return
     
     coordinate_string = "x_pos as x, y_pos as y, orientation "
     if use_hive_coordinates:
@@ -106,7 +110,7 @@ def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_thre
             "FROM bb_detections_2016_stitched " + sample_string + \
             "WHERE frame_id = ANY(%s) "
             "AND bee_id_confidence > %s "
-            "ORDER BY timestamp ASC", (list(map(int, frames), confidence_threshold)))
+            "ORDER BY timestamp ASC", (list(map(int, frames)), confidence_threshold))
 
     yield from cursor
 
