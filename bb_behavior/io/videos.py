@@ -186,6 +186,7 @@ class BeesbookVideoManager():
             for cut in cuts:
                 video_indices, video_frame_ids = zip(*video_data[last_cut:cut])
                 start_idx, end_idx = video_indices[0], video_indices[-1]
+                assert end_idx >= start_idx
                 self.extract_frames(video_name, start_idx, end_idx - start_idx + 1, video_frame_ids)
                 last_cut = cut
 
