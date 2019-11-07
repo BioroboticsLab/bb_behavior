@@ -40,10 +40,10 @@ def find_interactions_in_frame(frame_id, max_distance=20.0, min_distance=0.0, co
     fields = set(("x_pos_hive", "y_pos_hive", "orientation_hive")) | set(features)
     if not cursor_is_prepared:
         query = """
-        SELECT {}, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched
+        SELECT {}, bee_id, detection_idx, cam_id FROM {}
             WHERE frame_id = %s
             AND bee_id_confidence >= %s
-        """.format(",".join(fields))
+        """.format(",".join(fields), base.get_detections_tablename())
     else:
         # The user has prepared the cursor with the required fields.
         query = "EXECUTE find_interaction_candidates (%s, %s)"

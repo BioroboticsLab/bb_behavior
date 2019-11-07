@@ -42,16 +42,16 @@ class DatabaseCursorContext(object):
            "WHERE id = $1")
 
         self._cursor.execute("PREPARE get_bee_detections AS "
-           "SELECT timestamp, frame_id, x_pos AS x, y_pos AS y, orientation, track_id FROM bb_detections_2016_stitched "
-           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
+           "SELECT timestamp, frame_id, x_pos AS x, y_pos AS y, orientation, track_id FROM {} "
+           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
         
         self._cursor.execute("PREPARE get_bee_detections_hive_coords AS "
-           "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM bb_detections_2016_stitched "
-           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC")
+           "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM {} "
+           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
 
         self._cursor.execute("PREPARE find_interaction_candidates AS "
-            "SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM bb_detections_2016_stitched "
-            "WHERE frame_id = $1 AND bee_id_confidence >= $2")
+            "SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM {} "
+            "WHERE frame_id = $1 AND bee_id_confidence >= $2".format(base.get_detections_tablename()))
 
         # For metadata.get_frame_metadata
         self._cursor.execute("PREPARE get_frame_metadata AS "
@@ -175,7 +175,7 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
         coords_string = "x_pos AS x, y_pos AS y, orientation"
         if use_hive_coords:
             coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
-        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC",
+        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM {} WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC".format(base.get_detections_tablename()),
                         (frame_ids, bee_id))
     else:
         prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
@@ -343,8 +343,8 @@ def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consist
         frame_condition = " frame_id = ANY(%s) AND "
         query_arguments = (frame_ids, track_id)
     cursor.execute(
-           "SELECT detection_idx, timestamp, frame_id, {} AS x, {} AS y, {} as orientation, track_id FROM bb_detections_2016_stitched "
-           "WHERE {} track_id = %s ORDER BY timestamp ASC".format(*coords, frame_condition), query_arguments)
+           "SELECT detection_idx, timestamp, frame_id, {} AS x, {} AS y, {} as orientation, track_id FROM {} "
+           "WHERE {} track_id = %s ORDER BY timestamp ASC".format(*coords, base.get_detections_tablename(), frame_condition), query_arguments)
     track = cursor.fetchall()
     detection_keys = {t[2]: t[0] for t in track}
     track = [t[1:] for t in track]
@@ -404,21 +404,21 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         cursor.execute("""PREPARE fetch_track_ids_for_bee AS
                 SELECT 
                     track_id, MIN(timestamp), MAX(timestamp)
-                    FROM bb_detections_2016_stitched
+                    FROM {}
                     WHERE timestamp >= $1
                        AND timestamp <= $2
                        AND bee_id = $3
                     GROUP BY track_id
-                    """)
+                    """.format(base.get_detections_tablename()))
         
         cursor.execute("""PREPARE fetch_tracks AS
                 SELECT {}
-                   FROM bb_detections_2016_stitched 
+                   FROM {} 
                    WHERE
                        track_id = ANY($1)
                        AND bee_id_confidence > {}
                        ORDER BY track_id, timestamp ASC
-                """.format(", ".join(required_columns), confidence_threshold))
+                """.format(", ".join(required_columns), base.get_detections_tablename(), confidence_threshold))
     
     progress_bar = lambda x: x
     if progress == "tqdm":

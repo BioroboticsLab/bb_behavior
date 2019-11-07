@@ -107,7 +107,7 @@ def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_thre
     if sample_fraction is not None and sample_fraction < 1.0:
         sample_string = "TABLESAMPLE BERNOULLI ({}) ".format(sample_fraction * 100)
     cursor.execute("SELECT timestamp, frame_id, " + coordinate_string + ", track_id, bee_id "
-            "FROM bb_detections_2016_stitched " + sample_string + \
+            "FROM  " + base.get_detections_tablename() + " " + sample_string + \
             "WHERE frame_id = ANY(%s) "
             "AND bee_id_confidence > %s "
             "ORDER BY timestamp ASC", (list(map(int, frames)), confidence_threshold))
@@ -133,7 +133,7 @@ def get_track_ids(frames, cursor=None):
     if type(frames[0]) is tuple: # (timestamp, frame_id, cam_id) style
         frames = [f[1] for f in frames]
     frames = [int(f) for f in frames]
-    cursor.execute("SELECT DISTINCT track_id FROM bb_detections_2016_stitched WHERE frame_id = ANY(%s)", (frames,))
+    cursor.execute("SELECT DISTINCT track_id FROM {} WHERE frame_id = ANY(%s)".format(base.get_detections_tablename()), (frames,))
     track_ids = cursor.fetchall()
     track_ids = [int(t[0]) for t in track_ids]
     return track_ids
@@ -157,8 +157,8 @@ def get_track_ids_for_bee(bee_id, dt_from, dt_to, n_track_ids=None, cursor=None)
         with base.get_database_connection(application_name="get_track_ids_for_bee") as db:
             return get_track_ids_for_bee(bee_id, dt_from, dt_to, n_track_ids=n_track_ids, cursor=db.cursor())
 
-    cursor.execute("SELECT DISTINCT track_id FROM bb_detections_2016_stitched WHERE bee_id = %s AND "
-                    "timestamp >= %s AND timestamp < %s", (int(bee_id), dt_from, dt_to))
+    cursor.execute("SELECT DISTINCT track_id FROM {} WHERE bee_id = %s AND "
+                    "timestamp >= %s AND timestamp < %s".format(base.get_detections_tablename()), (int(bee_id), dt_from, dt_to))
     track_ids = cursor.fetchall()
     track_ids = [int(t[0]) for t in track_ids]
     if (n_track_ids is not None) and len(track_ids) > n_track_ids:
@@ -184,7 +184,7 @@ def get_bee_ids(frames, cursor=None):
     if type(frames[0]) is tuple: # (timestamp, frame_id, cam_id) style
         frames = [f[1] for f in frames]
     frames = [int(f) for f in frames]
-    cursor.execute("SELECT DISTINCT bee_id FROM bb_detections_2016_stitched WHERE frame_id = ANY(%s)", (frames,))
+    cursor.execute("SELECT DISTINCT bee_id FROM {} WHERE frame_id = ANY(%s)".format(base.get_detections_tablename()), (frames,))
     track_ids = cursor.fetchall()
     track_ids = [int(t[0]) for t in track_ids]
     return track_ids

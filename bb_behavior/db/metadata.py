@@ -102,7 +102,7 @@ def get_alive_bees(dt_from, dt_to, cursor=None):
         from contextlib import closing
         with closing(base.get_database_connection("get_alive_bees")) as con:
             return get_alive_bees(dt_from, dt_to, cursor=con.cursor())
-    cursor.execute("SELECT bee_id from alive_bees_2016 WHERE timestamp >= %s and timestamp < %s ", (dt_from, dt_to))
+    cursor.execute("SELECT bee_id from {} WHERE timestamp >= %s and timestamp < %s ".format(base.get_alive_bees_tablename()), (dt_from, dt_to))
     bee_ids = {result[0] for result in cursor.fetchall()}
     return bee_ids
 

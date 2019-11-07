@@ -1,6 +1,7 @@
 import psycopg2
 
 server_address = "localhost:5432"
+database_name = "beesbook"
 database_user = "reader"
 database_password = "reader"
 
@@ -13,5 +14,38 @@ def get_database_connection(application_name="bb_behavior", user=None, password=
         password = database_password
     if ":" in database_host:
         database_host, database_port = database_host.split(":")
-    return psycopg2.connect("dbname='beesbook' user='{}' host='{}' port='{}' password='{}'".format(user, database_host, database_port, password),
+    return psycopg2.connect("dbname='{}' user='{}' host='{}' port='{}' password='{}'".format(database_name, user, database_host, database_port, password),
                           application_name=application_name)
+
+
+"""
+    Different seasons can be placed in the same database. The tables will have different names then.
+    The following configuration can be used to change the data sources used by the helper tools.
+"""
+
+SEASON_BERLIN_2016 = dict(
+    bb_detections = "bb_detections_2016_stitched",
+    bb_alive_bees = "alive_bees_2016",
+    bb_frame_metadata = "bb_frame_metadata_2016",
+    bb_framecontainer_metadata = "framecontainer_metadata_2016",
+)
+
+SEASON_KONSTANZ_2018 = dict(
+    bb_detections = "bb_detections_konstanz_2016",
+)
+
+beesbook_season_config = SEASON_BERLIN_2016.copy()
+
+def set_season_berlin_2016():
+    beesbook_season_config = SEASON_BERLIN_2016.copy()
+def set_season_konstanz_2018():
+    beesbook_season_config = SEASON_KONSTANZ_2018.copy()
+
+def get_detections_tablename():
+    return beesbook_season_config["bb_detections"]
+def get_alive_bees_tablename():
+    return beesbook_season_config["bb_alive_bees"]
+def get_frame_metadata_tablename():
+    return beesbook_season_config["bb_frame_metadata"]
+def get_framecontainer_metadata_tablename():
+    return beesbook_season_config["bb_framecontainer_metadata"]
