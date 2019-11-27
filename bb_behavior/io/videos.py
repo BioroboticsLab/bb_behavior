@@ -34,7 +34,7 @@ def parse_beesbook_video_filename(filename, time_delimiter=None):
     begin, end = datetime_suffix.split("--")
     
     # Assume we are using UTC strings.
-    if begin[-1] != "Z" or end[-1] != "Z":
+    if not begin or not end or begin[-1] != "Z" or end[-1] != "Z":
         raise ValueError("Invalid video name encountered: {}".format(filename))
     
     if time_delimiter is None:
