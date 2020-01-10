@@ -203,7 +203,7 @@ class StochasticFeatureSelection(object):
 			# As a performance optimization, fetch a few results beforehand.
 			metric_results = df["metric"].values
 			df.drop(["metric"], axis=1, inplace=True)
-			features_active = df.as_matrix()
+			features_active = df.values
 			column_names = df.columns
 			feature_index_mapping = [column_names.get_loc(f_name) for f_name in self.feature_names]
 			
