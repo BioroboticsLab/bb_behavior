@@ -24,6 +24,7 @@ def get_database_connection(application_name="bb_behavior", user=None, password=
 """
 
 SEASON_BERLIN_2016 = dict(
+    identifier="berlin_2016",
     bb_detections = "bb_detections_2016_stitched",
     bb_alive_bees = "alive_bees_2016",
     bb_frame_metadata = "bb_frame_metadata_2016",
@@ -31,7 +32,8 @@ SEASON_BERLIN_2016 = dict(
 )
 
 SEASON_KONSTANZ_2018 = dict(
-    bb_detections = "bb_detections_konstanz_2016",
+    identifier="konstanz_2018",
+    bb_detections = "bb_detections_konstanz_2018",
 )
 
 beesbook_season_config = SEASON_BERLIN_2016.copy()
