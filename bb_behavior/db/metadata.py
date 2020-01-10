@@ -84,6 +84,108 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
 
     return annotated_frames
 
+def get_bee_hatch_dates(bee_ids, cursor=None, return_maximum_date=False, respect_bounds=True):
+    """Returns the introduction/hatch dates for a list of bees from the database.
+    Note that the first date is not guaranteed to be the hatch date if some bees were marked before the recording began.
+    Similarly, the last date is not guaranteed to be the death date if the recording stopped when some bees were still alive.
+    To set all bees with hatch dates before the season begin (resp. death date after the season ended) to None, use respect_bounds.
+    Arguments:
+        bee_ids: list(int)
+            List of ferwar-style IDs.
+        cursor: psycopg2.cursor
+            Optional. Connected database cursor.
+        return_maximum_date: bool
+            Optional. Whether to return the maximum date (the last day of life) instead.
+        respect_bounds: bool
+            Whether to return None for dates that would be the first/last day of the recording.
+            This is true by default to prevent wrong assumptions about the hatching or death of a bee.
+    Returns:
+        hatch_dates: list(int, datetime.date)
+            List of (bee_id, hatch_date). Same order as bee_ids
+            hatch_date can be None if no data is available or respect_bounds is True and the date would be the start/end of the season.
+    """
+    if cursor is None:
+        from contextlib import closing
+        with closing(base.get_database_connection("get_bee_hatch_dates")) as con:
+            return get_bee_hatch_dates(bee_ids, cursor=con.cursor(), return_maximum_date=return_maximum_date)
+    
+    # For the 2016 berlin data, the hatch dates are stored somewhere else.
+    bee_id_to_date_override_map = dict()
+    if not return_maximum_date and base.beesbook_season_config["identifier"] == "berlin_2016":
+        import bb_utils.meta, bb_utils.ids
+        hatch_metadata = bb_utils.meta.BeeMetaInfo()
+        for bee_id in bee_ids:
+            date = hatch_metadata.get_hatchdate(bb_utils.ids.BeesbookID.from_ferwar(bee_id))
+            date = date.to_pydatetime().date()
+            if pd.isnull(date):
+                date = None
+            bee_id_to_date_override_map[bee_id] = date
+
+    bee_ids = list(map(int, bee_ids))
+    fun = "MIN" if not return_maximum_date else "MAX"
+    cursor.execute("SELECT {}(timestamp) FROM {};".format(fun, base.get_alive_bees_tablename()))
+    bounding_date = cursor.fetchone()[0]
+
+    cursor.execute("SELECT bee_id, {}(timestamp) FROM {} WHERE bee_id=ANY(%s) GROUP BY bee_id".format(
+                    fun, base.get_alive_bees_tablename()),
+                    (bee_ids,))
+    lookup_dict = {b: d for (b, d) in cursor.fetchall()}
+    hatch_dates = []
+    for bee_id in bee_ids:
+        date = lookup_dict[bee_id] if bee_id in lookup_dict else None
+        if date is not None and bee_id in bee_id_to_date_override_map:
+            date = bee_id_to_date_override_map[bee_id]
+            assert date is not None
+        else:
+            if respect_bounds:
+                if date == bounding_date:
+                    date = None
+        hatch_dates.append((bee_id, date))
+
+    return hatch_dates
+
+def get_bee_death_dates(bee_ids, cursor=None):
+    """Compare get_bee_hatch_dates for further info.
+    Returns the last day of life of the bees."""
+    return get_bee_hatch_dates(bee_ids, cursor=cursor, return_maximum_date=True)
+
+def get_bee_ages(bee_id_dates, clip=True, cursor=None):
+    """Takes a list of bee_ids and dates and returns a list of bee_ids, dates and ages on that day.
+    Arguments:
+        bee_id_dates: list(int, datetime.date)
+            List of ferwar-style bee_ids and dates.
+        cursor: psycopg2.cursor
+            Optional. Connected database cursor.
+        clip: bool
+            Whether to clip negative values to -1 and also change bees that have died already to -1.
+            If clip is False, then bees without data will have the age set to None.
+    Returns:
+        bee_ages: list((int, datetime.date, int))
+            List of (bee_id, date, age).
+    """
+    
+    bee_ids = [bee_id for bee_id, _ in bee_id_dates]
+    hatch_dates = {b: d for (b, d) in get_bee_hatch_dates(bee_ids, cursor=cursor)}
+    last_days = None
+    if clip:
+        last_days = {b: d for (b, d) in get_bee_death_dates(bee_ids, cursor=cursor)}
+    
+    results = []
+    for bee_id, date in bee_id_dates:
+        hatch_date = hatch_dates[bee_id]
+        if hatch_date is None:
+            age = None
+        else:
+            age = (date - hatch_date).days
+
+        if clip:
+            if age is None or age < 0:
+                age = -1
+            elif last_days[bee_id] is not None and date > last_days[bee_id]:
+                age = -1
+        results.append((bee_id, date, age))
+    return results
+
 def get_alive_bees(dt_from, dt_to, cursor=None):
     """Returns all bees for a time window that have been tagged and did not die yet.
 
