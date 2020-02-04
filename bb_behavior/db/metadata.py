@@ -107,7 +107,7 @@ def get_bee_hatch_dates(bee_ids, cursor=None, return_maximum_date=False, respect
     if cursor is None:
         from contextlib import closing
         with closing(base.get_database_connection("get_bee_hatch_dates")) as con:
-            return get_bee_hatch_dates(bee_ids, cursor=con.cursor(), return_maximum_date=return_maximum_date)
+            return get_bee_hatch_dates(bee_ids, cursor=con.cursor(), return_maximum_date=return_maximum_date, respect_bounds=respect_bounds)
     
     # For the 2016 berlin data, the hatch dates are stored somewhere else.
     bee_id_to_date_override_map = dict()
