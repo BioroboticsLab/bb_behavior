@@ -73,10 +73,11 @@ def generate_mode_images(gen, only_return_one=False, smoothing=0.95):
     bins=256
     im = next(gen)
     is_float = not (im.dtype is np.integer)
+    if is_float and im.max() > 1.0:
+        raise ValueError("Image appears to be floating data type but max value is above 1.0.")
     histogram = np.zeros(shape=(bins, im.shape[0], im.shape[1]), dtype=np.float32)
     last_background_image = None
     
-
     for i, im in enumerate(gen):
         diff = 0.0
         increase_histogram(histogram, im, is_float=is_float)
@@ -132,6 +133,7 @@ def make_background_image(image_generator, output_filename=None,
     Arguments:
         image_generator: generator
             Generator yielding grescale images as np.array with shape (H, W).
+            The images should be dtype=float32 and the values should be between 0.0 and 1.0.
         output_filename: string
             Optional. Filename of the resulting image.
         mode_smoothing: float
