@@ -29,20 +29,26 @@ SEASON_BERLIN_2016 = dict(
     bb_alive_bees = "alive_bees_2016",
     bb_frame_metadata = "bb_frame_metadata_2016",
     bb_framecontainer_metadata = "framecontainer_metadata_2016",
+    temp_tablespace = "ssdspace"
 )
 
 SEASON_KONSTANZ_2018 = dict(
     identifier="konstanz_2018",
-    bb_detections = "bb_detections_konstanz_2018",
+    bb_detections = "bb_detections_2018_konstanz",
+    bb_frame_metadata = "bb_frame_metadata_2018_konstanz"
 )
 
 beesbook_season_config = SEASON_BERLIN_2016.copy()
 
 def set_season_berlin_2016():
+    global beesbook_season_config
     beesbook_season_config = SEASON_BERLIN_2016.copy()
 def set_season_konstanz_2018():
+    global beesbook_season_config
     beesbook_season_config = SEASON_KONSTANZ_2018.copy()
 
+def get_season_identifier():
+    return beesbook_season_config["identifier"]
 def get_detections_tablename():
     return beesbook_season_config["bb_detections"]
 def get_alive_bees_tablename():
@@ -51,3 +57,7 @@ def get_frame_metadata_tablename():
     return beesbook_season_config["bb_frame_metadata"]
 def get_framecontainer_metadata_tablename():
     return beesbook_season_config["bb_framecontainer_metadata"]
+def get_temp_tablespace():
+    if "temp_tablespace" in beesbook_season_config:
+        return beesbook_season_config["temp_tablespace"]
+    return None

@@ -28,18 +28,21 @@ class DatabaseCursorContext(object):
             SET geqo_effort to 10;
             SET max_parallel_workers_per_gather TO 8;
             SET temp_buffers to "32GB";
-            SET work_mem to "1GB";
-            SET temp_tablespaces to "ssdspace";""")
+            SET work_mem to "1GB";""")
 
-        self._cursor.execute("PREPARE get_neighbour_frames AS "
-           "SELECT index, fc_id, timestamp FROM plotter_frame WHERE frame_id = $1 LIMIT 1")
+        temp_tablespace = base.get_temp_tablespace()
+        if temp_tablespace:
+            self._cursor.execute("""SET temp_tablespaces to "{}";""".format(temp_tablespace))
 
-        self._cursor.execute("PREPARE get_frames_all_frame_ids AS "
-           "SELECT timestamp, frame_id, fc_id FROM plotter_frame WHERE timestamp >= $1 AND timestamp <= $2")
+        if base.get_season_identifier() == "berlin_2016": # Needs adjustment for the new metadata structure.
+            self._cursor.execute("PREPARE get_neighbour_frames AS "
+            "SELECT index, fc_id, timestamp FROM plotter_frame WHERE frame_id = $1 LIMIT 1")
 
-        self._cursor.execute("PREPARE get_frames_fetch_container AS "
-           "SELECT CAST(SUBSTR(video_name, 5, 1) AS INT) FROM plotter_framecontainer "
-           "WHERE id = $1")
+        self._cursor.execute("PREPARE get_all_frame_ids AS "
+        "SELECT datetime, frame_id, cam_id FROM {} WHERE datetime >= $1 AND datetime < $2".format(base.get_frame_metadata_tablename()))
+
+        self._cursor.execute("PREPARE get_all_frame_ids_for_cam AS "
+        "SELECT datetime, frame_id, cam_id FROM {} WHERE datetime >= $1 AND datetime < $2 AND cam_id = $3".format(base.get_frame_metadata_tablename()))
 
         self._cursor.execute("PREPARE get_bee_detections AS "
            "SELECT timestamp, frame_id, x_pos AS x, y_pos AS y, orientation, track_id FROM {} "
@@ -53,14 +56,27 @@ class DatabaseCursorContext(object):
             "SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM {} "
             "WHERE frame_id = $1 AND bee_id_confidence >= $2".format(base.get_detections_tablename()))
 
+        self._cursor.execute("""PREPARE get_all_bee_hive_detections_for_frames AS 
+            SELECT bee_id, timestamp, frame_id,
+            x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation,
+            track_id FROM {} WHERE frame_id=ANY($1) AND bee_id=ANY($2)
+            ORDER BY timestamp ASC""".format(base.get_detections_tablename()))
+
+        self._cursor.execute("""PREPARE get_all_bee_pixel_detections_for_frames AS 
+            SELECT bee_id, timestamp, frame_id,
+            x_pos AS x, y_pos AS y, orientation,
+            track_id FROM {} WHERE frame_id=ANY($1) AND bee_id=ANY($2)
+            ORDER BY timestamp ASC""".format(base.get_detections_tablename()))
+
         # For metadata.get_frame_metadata
-        self._cursor.execute("PREPARE get_frame_metadata AS "
-           "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
-        # For metadata.get_frame_metadata
-        self._cursor.execute("PREPARE get_frame_container_info AS "
-          "SELECT video_name FROM plotter_framecontainer "
-          "WHERE id = $1 LIMIT 1")
-          
+        if base.get_season_identifier() == "berlin_2016": # Needs adjustment for the new metadata structure.
+            self._cursor.execute("PREPARE get_frame_metadata AS "
+            "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
+            # For metadata.get_frame_metadata
+            self._cursor.execute("PREPARE get_frame_container_info AS "
+            "SELECT video_name FROM plotter_framecontainer "
+            "WHERE id = $1 LIMIT 1")
+
         return self._cursor
 
     def __exit__(self, type, value, traceback):

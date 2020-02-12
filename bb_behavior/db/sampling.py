@@ -48,48 +48,49 @@ def sample_frame_ids(n_samples=100, ts_from=None, ts_to=None, cursor=None):
     
     return cursor.fetchall()
 
-def get_frames(cam_id, ts_from, ts_to, cursor=None, frame_container_id=None, cursor_is_prepared=False):
+def get_frames(cam_id, ts_from, ts_to, cursor=None, cursor_is_prepared=False):
     """Retrieves a list of frames for a camera between two time points.
         
         Arguments:
-            cam_id: database camera id (0-4)
-            ts_from: Begin (included); unix timestamp with milliseconds accuracy
-            ts_to: End (excluded); unix timestamp with milliseconds accuracy
-            cursor: optional database cursor to work on
-            frame_container_id: required when cam_id==None; database frame_container_id to retrieve the camera ID from
-        
+            cam_id: None OR int
+                Database camera id.
+            ts_from: float OR datetime.datetime
+                Begin (included); datetime or unix timestamp with milliseconds accuracy
+            ts_to: float OR datetime.datetime
+                End (excluded); datetime or unix timestamp with milliseconds accuracy
+            cursor: psyscopg2.Cursor
+                Optional. Database cursor to work on.
+            cursor_is_prepared: bool
+                Whether the 'cursor' already has the required statements prepared.
+
         Returns:
-            List containing tuples of (timestamp, frame_id, cam_id), which are sorted by timestamp.
+            List containing tuples of (datetime, frame_id, cam_id), which are sorted by datetime.
     """
     if cursor is None:
-        with base.get_database_connection(application_name="get_frames") as db:
-            return get_frames(cam_id, ts_from, ts_to, cursor=db.cursor(), frame_container_id=frame_container_id)
-    if not cursor_is_prepared:
-        cursor.execute("SELECT timestamp, frame_id, fc_id FROM plotter_frame WHERE timestamp >= %s AND timestamp < %s", (ts_from, ts_to))
-    else:
-        cursor.execute("EXECUTE get_frames_all_frame_ids (%s, %s)",  (ts_from, ts_to))
-    results = list(cursor)
-    containers = {fc_id for (_, _, fc_id) in results}
+        import contextlib
+        with contextlib.closing(base.get_database_connection(application_name="get_frames")) as db:
+            return get_frames(cam_id, ts_from, ts_to, cursor=db.cursor())
+    
+    if type(ts_from) is float:
+        ts_from = datetime.datetime.fromtimestamp(ts_from, datetime.timezone.utc)
+    if type(ts_to) is float:
+        ts_to = datetime.datetime.fromtimestamp(ts_to, datetime.timezone.utc)
     
     if not cursor_is_prepared:
-        cursor.execute("PREPARE get_frames_fetch_container AS "
-            "SELECT CAST(SUBSTR(video_name, 5, 1) AS INT) FROM plotter_framecontainer "
-            "WHERE id = $1")
-
-    if cam_id is None:
-        if frame_container_id is None:
-            raise ValueError("frame_container_id required when no cam_id provided.")
-        cursor.execute("EXECUTE get_frames_fetch_container (%s)", (frame_container_id,))
-        cam_id = cursor.fetchone()[0]
-
-    matching_cam = set()
-    for container in containers:
-        cursor.execute("EXECUTE get_frames_fetch_container (%s)", (container,))
-        cam = cursor.fetchone()[0]
-        if cam == cam_id:
-            matching_cam.add(container)
-    results = [(timestamp, frame_id, cam_id) for (timestamp, frame_id, fc_id) in results if fc_id in matching_cam]
-    return sorted(results)
+        cam_id_string = ""
+        if cam_id is not None:
+            cam_id_string = " AND cam_id={} ".format(cam_id)
+        cursor.execute(
+            "SELECT datetime, frame_id, cam_id FROM {} WHERE datetime >= %s AND datetime < %s {}".format(
+                base.get_frame_metadata_tablename(), cam_id_string), (ts_from, ts_to))
+    else:
+        if cam_id is not None:
+            cursor.execute("EXECUTE get_all_frame_ids_for_cam (%s, %s, %s)",  (ts_from, ts_to, cam_id))
+        else:
+            cursor.execute("EXECUTE get_all_frame_ids (%s, %s)",  (ts_from, ts_to))
+            
+    results = cursor.fetchall()
+    return list(sorted((dt, int(f_id), cam_id) for (dt, f_id, cam_id) in results))
 
 def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_threshold=0.1, sample_fraction=1.0, cursor=None):
     if cursor is None:
