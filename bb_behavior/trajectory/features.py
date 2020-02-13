@@ -313,12 +313,11 @@ class DataReader(object):
             bee_ids = set()
             for col in self._bee_id_columns:
                 bee_ids |= set(map(int, samples[col].values))
-            coords_string = "x_pos AS x, y_pos AS y, orientation"
+            query = "get_all_bee_pixel_detections_for_frames"
             if self._use_hive_coords:
-                coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
+                query = "get_all_bee_hive_detections_for_frames"
             frame_ids = [int(f[1]) for f in neighbour_frames]
-            cursor.execute("SELECT bee_id, timestamp, frame_id, " + coords_string + ", track_id FROM bb_detections_2016_stitched WHERE frame_id=ANY(%s) AND bee_id=ANY(%s) ORDER BY timestamp ASC",
-                        (frame_ids, list(bee_ids)))
+            cursor.execute("EXECUTE get_all_bee_hive_detections_for_frames(%s, %s)", (frame_ids, list(bee_ids)))
             bee_to_traj = defaultdict(list)
             # Sort into bee ids.
             for row in cursor.fetchall():
