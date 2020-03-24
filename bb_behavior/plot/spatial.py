@@ -99,6 +99,8 @@ def plot_spatial_values(iterable,
     n_categories = len(accumulators.keys())
     grid = (n_categories, 1) if orient == "v" else (1, n_categories)
     fig, axes = plt.subplots(*grid, figsize=figsize)
+    if n_categories == 1:
+        axes = [axes]
     if suptitle:
         plt.suptitle(suptitle)
     cmap = matplotlib.cm.get_cmap(cmap)
@@ -150,3 +152,76 @@ def plot_spatial_values(iterable,
         plt.savefig(save_path)
     else:
         plt.show()
+
+
+def plot_binned_heatmap(xy, values=None, bin_width=None, n_bins=50.0, aggfunc=None, xlim=None, ylim=None,
+                   heatmap_kws=dict(), scale_order=1, scale=10.0, smooth="gaussian", smooth_sigma=2.0,
+                  draw_heatmap=True, draw_contours=True, contour_kws=dict(),
+                  fill_contours=True, contourf_kws=dict(), ax=None, fill_na=np.nanmedian,
+                  contour_levels=None, heatmap=None):
+    import seaborn as sns
+    import skimage
+    import matplotlib.pyplot as plt
+    import pandas
+    
+    if aggfunc is None:
+        if values is None:
+            aggfunc = np.sum
+        else:
+            import scipy.stats
+            aggfunc = lambda v: scipy.stats.mode(v).mode[0]
+    if values is None:
+        values = np.ones(shape=(xy.shape[0], 1), dtype=np.float32)
+    if ax is None:
+        ax = plt.gca()
+    
+    if bin_width is None:
+        bin_width = np.max(xy) / n_bins
+    x_min = 0 if xlim is None else xlim[0]
+    y_min = 0 if ylim is None else ylim[0]
+    x_max = np.max(xy[:, 0]) if xlim is None else xlim[1]
+    y_max = np.max(xy[:, 1]) if ylim is None else ylim[1]
+    n_x_bins = int((x_max - x_min) / bin_width)
+    n_y_bins = int((y_max - y_min) / bin_width)
+    x_grid = np.linspace(x_min, x_max, n_x_bins + 1)
+    y_grid = np.linspace(y_min, y_max, n_y_bins + 1)
+    
+    if heatmap is None:
+        heatmap = np.nan * np.zeros(shape=(n_y_bins, n_x_bins))
+
+        for x_i in range(n_x_bins):
+            for y_i in range(n_y_bins):
+                x_bin = x_grid[x_i], x_grid[x_i+1]
+                y_bin = y_grid[y_i], y_grid[y_i+1]
+
+                idx = ((xy[:, 0] >= x_bin[0]) & (xy[:, 0] < x_bin[1]) &
+                        (xy[:, 1] >= y_bin[0]) & (xy[:, 1] < y_bin[1]))
+                if idx.sum() == 0:
+                    continue
+                val = aggfunc(values[idx])
+
+                heatmap[y_i, x_i] = val
+        if fill_na is not None:
+            heatmap[pandas.isnull(heatmap)] = fill_na(heatmap)
+        if scale_order is not None:
+            heatmap = skimage.transform.rescale(heatmap, scale=scale, order=scale_order, multichannel=False)
+        if smooth == "gaussian":
+            smooth_factor = smooth_sigma
+            if scale_order is not None:
+                smooth_factor *= scale
+            heatmap = skimage.filters.gaussian(heatmap, sigma=smooth_factor)
+        elif smooth == "median":
+            import scipy.signal
+            heatmap = scipy.signal.medfilt2d(heatmap, 5)
+            
+    if contour_levels is None:
+        contour_levels = np.percentile(heatmap, 10.0 * np.linspace(2, 10))
+        
+    if draw_heatmap:
+        #h = sns.heatmap(heatmap, ax=ax, **heatmap_kws)
+        ax.imshow(heatmap, **heatmap_kws)
+    if fill_contours:
+        ax.contourf(x_grid[:-1], y_grid[:-1], heatmap, levels=contour_levels, **contourf_kws)
+    if draw_contours:
+        ax.contour(x_grid[:-1], y_grid[:-1], heatmap, levels=contour_levels, **contour_kws)
+    return heatmap
