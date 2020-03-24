@@ -23,7 +23,7 @@ class StochasticFeatureSelection(object):
 				 retain_experiments=False, n_jobs=-1, cv_n_jobs=-1, iteration_callback=None, reuse_available_information=False,
 				 static_train_test_split=False):
 		if scoring is None:
-			self.scoring = sklearn.metrics.make_scorer(sklearn.metrics.mean_squared_error)
+			self.scoring = sklearn.metrics.make_scorer(sklearn.metrics.mean_squared_error, greater_is_better=False)
 		else:
 			self.scoring = scoring
 		self.model = model
