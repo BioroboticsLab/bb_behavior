@@ -127,7 +127,7 @@ def make_background_video(image_generator, output_filename,
         background_writer.write(image)
     
 def make_background_image(image_generator, output_filename=None,
-                          mode_smoothing=0.95, median_steps=10):
+                          mode_smoothing=0.95, median_steps=10, use_threading=True):
     """Takes an image generator and creates and returns and optionally saves a background-subtracted image.
     
     Arguments:
@@ -141,16 +141,20 @@ def make_background_image(image_generator, output_filename=None,
             1 = slowest adjustment. 0 = instant.
         median_steps: int
             One median image will be generated for every median_steps images.
-    
+        use_threading: bool
+            Default true. Whether to load the images and generate the median in a different thread.
     Returns:
         image: np.array(shape=(H, W), dtype=np.uint8)
             Greyscale background image.
     """
-    from prefetch_generator import BackgroundGenerator
     import imageio
+
+    median_image_generator = generate_median_images(image_generator, N=median_steps)
+    if use_threading:
+        from prefetch_generator import BackgroundGenerator
+        median_image_generator = BackgroundGenerator(median_image_generator, 6)
     
-    image = list(generate_mode_images(
-                BackgroundGenerator(generate_median_images(image_generator, N=median_steps), 6),
+    image = list(generate_mode_images(median_image_generator,
                 only_return_one=True, smoothing=mode_smoothing))[0]
     
     if output_filename is not None:
