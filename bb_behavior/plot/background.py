@@ -74,22 +74,24 @@ def generate_mode_images(gen, only_return_one=False, smoothing=0.95):
         modal_image: np.array(dtype=np.uint8)
         Images of the same shape as the original image.
     """
+    import itertools
+
     bins=256
     try:
-        im = next(gen)
+        first_image = next(gen)
     except StopIteration:
-        im = None
+        first_image = None
 
-    if im is None:
+    if first_image is None:
         return None
 
-    is_float = not (im.dtype is np.integer)
-    if is_float and im.max() > 1.0:
+    is_float = not (first_image.dtype is np.integer)
+    if is_float and first_image.max() > 1.0:
         raise ValueError("Image appears to be floating data type but max value is above 1.0.")
-    histogram = np.zeros(shape=(bins, im.shape[0], im.shape[1]), dtype=np.float32)
+    histogram = np.zeros(shape=(bins, first_image.shape[0], first_image.shape[1]), dtype=np.float32)
     last_background_image = None
     
-    for i, im in enumerate(gen):
+    for i, im in enumerate(itertools.chain((first_image,), gen)):
         diff = 0.0
         increase_histogram(histogram, im, is_float=is_float)
         
