@@ -56,7 +56,8 @@ def get_first_frame_from_video(vid_file):
     return image
 
 def extract_frames_from_video(video_path, target_directory, start_frame=0, n_frames=1,codec="hevc_cuvid", command="ffmpeg", scale=1.0, framerate=3, output_format="bmp"):
-
+    """Takes a video filename, frame start index and number of frames and uses FFMPEG to extract these frames into a target directory.
+    """
     import subprocess
 
     if codec is not None:
@@ -76,6 +77,36 @@ def extract_frames_from_video(video_path, target_directory, start_frame=0, n_fra
 
     subprocess.run([command] + call_args, stderr=subprocess.PIPE)
     
+
+
+def get_frames_from_video(video_path, **kwargs):
+    """Like extract_frames_from_video but loads the frames and yields them as numpy arrays.
+    """
+    import tempfile
+    import matplolib.pyplot as plt
+    import numpy as np
+
+    if "output_format" not in kwargs:
+        kwargs["output_format"] = "png"
+    n_frames = 1
+    if "n_frames" in kwargs:
+        n_frames = kwargs["n_frames"]
+
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        extract_frames_from_video(video_path, temp_dir, **kwargs)
+        
+        all_frames = sorted(os.listdir(temp_dir))
+        if len(all_frames) != n_frames:
+            start_frame = 0
+            if "start_frame" in kwargs:
+                start_frame = kwargs["start_frame"]
+            raise ValueError("Invalid frame number (start: {}, N: {}) for video file {}.".format(
+                                start_frame, n_frames, video_path))
+        
+        for f in all_frames:
+            image = plt.imread(temp_dir + "/" + f).astype(np.float32)
+            yield image
 
 class BeesbookVideoManager():
     def __init__(self, video_root, cache_path, videos_in_subdirectories=True):
