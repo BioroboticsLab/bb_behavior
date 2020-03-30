@@ -15,7 +15,11 @@ def generate_median_images(gen, N=10):
             Image of same shape as original images.
     """
     idx = 1
-    im = next(gen)
+    try:
+        im = next(gen)
+    except StopIteration:
+        return
+
     buffer = np.zeros(shape=(N, im.shape[0], im.shape[1]), dtype=np.float32)
     buffer[0] = im
     
@@ -71,7 +75,14 @@ def generate_mode_images(gen, only_return_one=False, smoothing=0.95):
         Images of the same shape as the original image.
     """
     bins=256
-    im = next(gen)
+    try:
+        im = next(gen)
+    except StopIteration:
+        im = None
+
+    if im is None:
+        return None
+
     is_float = not (im.dtype is np.integer)
     if is_float and im.max() > 1.0:
         raise ValueError("Image appears to be floating data type but max value is above 1.0.")
@@ -120,7 +131,9 @@ def make_background_video(image_generator, output_filename,
                         image_generator, N=median_steps),
                                         smoothing=mode_smoothing),
                     4):
-                
+        if image is None:
+            return
+            
         if background_writer is None:
             fourcc =  cv2.VideoWriter_fourcc(*codec)
             background_writer = cv2.VideoWriter(output_filename, fourcc, fps, (image.shape[1],image.shape[0]), False)
@@ -155,8 +168,11 @@ def make_background_image(image_generator, output_filename=None,
         median_image_generator = BackgroundGenerator(median_image_generator, 6)
     
     image = list(generate_mode_images(median_image_generator,
-                only_return_one=True, smoothing=mode_smoothing))[0]
-    
+                only_return_one=True, smoothing=mode_smoothing))
+    if image is None or len(image) == 0:
+        return None
+    image = image[0] # List should contain only one element.
+
     if output_filename is not None:
         imageio.imwrite(output_filename, image)
         
