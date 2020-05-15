@@ -131,7 +131,7 @@ def iterate_dataframe_as_detections(dataframe, H):
 
 
 def track_detections_dataframe(dataframe_or_generator,
-                                tracker_settings=None,
+                                tracker_settings=None, use_threading=False,
                                 homography_fn=None, homography_scale=None,
                                 cam_id=None,
                                 tracker_settings_kwargs=dict()):
@@ -174,7 +174,7 @@ def track_detections_dataframe(dataframe_or_generator,
     tracker = bb_tracking.repository_tracker.CamDataGeneratorTracker(
         iterate_dataframes(),
         cam_ids=(cam_id,),
-        progress_bar=None,
+        progress_bar=None, use_threading=use_threading,
         **tracker_settings)
 
     tracks_dataframe = []
