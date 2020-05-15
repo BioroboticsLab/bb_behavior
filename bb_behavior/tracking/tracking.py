@@ -34,9 +34,11 @@ import numpy as np
 import pandas as pd
 import scipy.spatial
 
-import bb_tracking.features
-import bb_tracking.types
 import bb_tracking.data_walker
+import bb_tracking.features
+import bb_tracking.models
+import bb_tracking.repository_tracker
+import bb_tracking.types
 
 import bb_utils.ids
 
