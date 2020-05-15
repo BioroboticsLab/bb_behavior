@@ -27,170 +27,170 @@ E.g. in a jupyter notebook if everything is installed, use
 """
 from ..plot.misc import draw_ferwar_id_on_axis
 
-import bb_tracking
-import bb_tracking.data
-import bb_tracking.tracking
-
+from collections import defaultdict, namedtuple
+import datetime, pytz
+import dill
 import numpy as np
 import pandas as pd
-import bb_trajectory.utils
-from collections import defaultdict
+import scipy.spatial
 
-import bb_tracking.data
-import bb_tracking.tracking
-import dill
-
-import pipeline.io
-from pipeline.objects import PipelineResult
-
-# These imports are necessary so that the bb_tracking module works correctly.
-# And this, my kids, is why we don't import into the global namespace.
-import math
-from bb_tracking.data.constants import DETKEY
-from bb_tracking.tracking import score_id_sim_v
-from bb_tracking.tracking import distance_orientations_v, distance_positions_v
+import bb_tracking.features
+import bb_tracking.types
+import bb_tracking.data_walker
 
 import bb_utils.ids
 
-from .pipeline import get_timestamps_for_beesbook_video,\
-        detect_markers_in_beesbook_video,\
-        detect_markers_in_video
+def make_scaling_homography_fn(pixels_to_millimeter_ratio):
+    """Returns a homography generator function that always returns a homography with a fixed pixel-to-mm scaling.
 
+    Arguments:
+        pixels_to_millimeter_ratio: float
+            Millimeters / pixels for the video data.
+    """
+    def scaling_homography_fn(cam_id, dt):
+        return np.array([[pixels_to_millimeter_ratio, 0.0, 0.0],
+                         [0.0, pixels_to_millimeter_ratio, 0.0],
+                         [0.0, 0.0, 1.0]], dtype=np.float64)
+    return scaling_homography_fn
 
-class PandasTracker():
-    def __init__(self, det_score_fun, frag_score_fun):
-        self.det_score_fun = det_score_fun
-        self.frag_score_fun = frag_score_fun
-        
-    def merge_fragments(self, dw_tracks, frame_diff):
-        gap = frame_diff - 1
-        walker = bb_tracking.tracking.SimpleWalker(dw_tracks, self.frag_score_fun, frame_diff, np.inf)
-        merged_fragments = walker.calc_tracks()
-        return merged_fragments
-        
-    def __call__(self, dataframe, max_distance=200, max_track_length=15, **kwargs):
-        meta_keys = kwargs["meta_keys"] if "meta_keys" in kwargs else dict()
-        if "camID" in dataframe.columns:
-            meta_keys["camID"] = "camId"
-        
-        dw_final = bb_tracking.data.DataWrapperPandas(dataframe, meta_keys=meta_keys, **kwargs)
-        
-        walker_final = bb_tracking.tracking.SimpleWalker(dw_final, self.det_score_fun, 1, max_distance)
-        tracks_final  = walker_final.calc_tracks()
-        del(walker_final)
-        self.tracks_final = tracks_final
-        self.dw_final = dw_final
-        
-        dw_tracks_final = bb_tracking.data.DataWrapperTracks(tracks_final, dw_final.cam_timestamps)
-        del(dw_final)
+def get_default_tracker_settings(detection_model_path, tracklet_model_path,
+        detection_classification_threshold=0.5, tracklet_classification_threshold=0.65):
 
-        tracks_final = self.merge_fragments(dw_tracks_final, max_track_length)
-        del(dw_tracks_final)
+    detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
+    tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
 
-        return tracks_final
-    
-    @classmethod
-    def from_dict(cls, fun_dict):
-        return PandasTracker(fun_dict["det_score_fun"], fun_dict["frag_score_fun"])
-    @classmethod
-    def from_dill_dict(cls, filename):
-        import dill
-        with open(filename, 'rb') as f:
-            fun_dict = dill.load(f)
-            return cls.from_dict(fun_dict)
-    
-    def to_dill_dict(self, filename):
-        if self.det_score_fun is None or self.frag_score_fun is None:
-            raise ValueError("Tracker not instantiated/trained.")
-        import dill
-        with open(filename, 'wb') as f:
-            d = dict(det_score_fun = self.det_score_fun,
-                     frag_score_fun = self.frag_score_fun)
-            dill.dump(d, f)
+    tracklet_kwargs = dict(
+        max_distance_per_second = 200,
+        n_features=17,
+        detection_feature_fn=bb_tracking.features.get_detection_features,
+        detection_cost_fn=detection_model.predict_cost,
+        max_cost=1.0 - detection_classification_threshold
+        )
+
+    track_kwargs = dict(
+        max_distance_per_second = 200,
+        n_features=8,
+        tracklet_feature_fn=bb_tracking.features.get_track_features,
+        tracklet_cost_fn=tracklet_model.predict_cost,
+        max_cost=1.0 - tracklet_classification_threshold
+        )
+    return dict(tracklet_kwargs=tracklet_kwargs, track_kwargs=track_kwargs)
                 
+def iterate_dataframe_as_detections(dataframe, H):
+    """Takes a dataframe (e.g. as returned by pipeline.detect_markers_in_video) and yields the rows in a tracking-friendly format.
+    """
+    if dataframe is None:
+        return
+    if dataframe.shape[0] == 0:
+        return
+    
+    Bee = namedtuple("bee", ("xpos", "ypos", "idx", "localizerSaliency"))
+            
+    dataframe = dataframe.sort_values("timestamp")
+    
+    detection_type_map = dict(
+        TaggedBee=bb_tracking.types.DetectionType.TaggedBee,
+        UnmarkedBee=bb_tracking.types.DetectionType.UntaggedBee,
+        BeeInCell=bb_tracking.types.DetectionType.BeeInCell,
+        UpsideDownBee=bb_tracking.types.DetectionType.BeeOnGlass,
+    )
+    
+    assert len(dataframe.camID.unique()) == 1
+    cam_id = dataframe.camID.values[0]
+    
+    for (ts, frame_id), frame_df in dataframe.groupby(["timestamp", "frameId"], sort=True):
+        frame_detections = []
+        frame_datetime = None
+        for (xpos, ypos, idx, localizer_saliency, timestamp, orientation, detection_type, bit_probabilities) in \
+            frame_df[["xpos", "ypos", "detection_index", "localizerSaliency",
+                       "timestamp", "zrotation", "detection_type", "beeID"]].itertuples(index=False):
+            
+            xpos = np.float64(xpos)
+            ypos = np.float64(ypos)
+            orientation = np.float64(orientation)
+            timestamp = np.float64(timestamp)
+            
+            bee = Bee(xpos, ypos, idx, localizer_saliency)
+            
+            detection_type = detection_type_map[detection_type]
+            detection = bb_tracking.data_walker.make_detection(bee, H=H,
+                                       frame_id=frame_id, timestamp=timestamp, orientation=float(orientation),
+                                       detection_type=detection_type, bit_probabilities=np.array(bit_probabilities),
+                                       no_datetime_timestamps=True)
+            frame_detections.append(detection)
+            
+            if frame_datetime is None:
+                frame_datetime = datetime.datetime.fromtimestamp(timestamp, tz=pytz.UTC)
+        
+        xy = [(detection.x_hive, detection.y_hive) for detection in frame_detections]
+        frame_kdtree = scipy.spatial.cKDTree(xy)
+        yield (cam_id, frame_id, frame_datetime, frame_detections, frame_kdtree)
 
-def track_detections_dataframe(dataframe, tracker=None,
-                               confidence_filter_detections=None,
-                              confidence_filter_tracks=None,
-                              coordinate_scale=None,
-                              use_weights_for_tracked_id=True):
+
+
+def track_detections_dataframe(dataframe_or_generator,
+                                tracker_settings=None,
+                                homography_fn=None, homography_scale=None,
+                                cam_id=None,
+                                tracker_settings_kwargs=dict()):
     """Takes a dataframe as generated by detect_markers_in_video and returns connected tracks.
     
     Arguments:
-        dataframe: pandas.DataFrame
+        dataframe_or_generator: pandas.DataFrame or generator
             Detections per frame as returned by detect_markers_in_video.
-        tracker: string or callable or dict
-            Either an instantiated PandasTracker
-            or the input to either PandasTracker.from_dill_dict or PandasTracker.from_dict.
-        confidence_filter_detections: float
-            If given, disregards detections with a lower confidence value prior to tracking.
-        confidence_filter_tracks: float
-            If given, disregards tracks with a lower mean confidence after tracking.
-        coordinate_scale: float
-            If given, scales the detection coordinates prior to tracking.
-            Can be used to ensure that the input coordinates are on a similar scale as the
-            data that has been originally used to train the tracker.
-            Higher value means that distances are more important.
-        use_weights_for_track_id: bool
-            Whether to use a weighted average for the tracked ID based on the detection confidences.
-            If false, the median will be used.
+            Can be a generator yielding multiple dataframes for a single camera (must be ordered by time).
+        tracker_settings: dict
+            Dictionary containing the keys 'detection_kwargs' and 'tracklet_kwargs'.
+        homography_fn: callable
+            Optional. A function taking a cam_id and datetime object and returning a pixels-to-mm homography.
+            If None, homography_scale will be used to get a simple scaling homography.
+        homography_scale: float
+            Optional. If homography_fn is not given, this pixels-to-millimeters ratio is used as a homography.
     Returns:
-        pandas.DataFrame similar to the input 'dataframe', containing the additional columns:
-        "track_id", "track_confidence", "bee_id".
+        pandas.DataFrame similar to the input, containing the additional columns:
+        "track_id", "bee_id".
     """
-    if tracker is not None:
-        if isinstance(tracker, dict):
-            tracker = PandasTracker.from_dict(tracker)
-        elif isinstance(tracker, str):
-            tracker = PandasTracker.from_dill_dict(tracker)
+    if tracker_settings is None:
+        tracker_settings = get_default_tracker_settings(**tracker_settings_kwargs)
     
-    has_confidences = "confidence" in dataframe.columns
-    if confidence_filter_detections and confidence_filter_detections > 0.0:
-        if not has_confidences:
-            raise ValueError("Can not filter for confidence ('confidence' column not available).")    
-        filtered = dataframe[dataframe.confidence >= confidence_filter_detections]
-    else:
-        filtered = dataframe
-    
-    if coordinate_scale is not None and coordinate_scale != 1.0:
-        filtered = filtered.copy()
-        filtered.xpos = filtered.xpos * coordinate_scale
-        filtered.ypos = filtered.ypos * coordinate_scale
-        
-    tracks = tracker(filtered)
-    detection_ids = {dataframe.id.values[idx]: idx for idx in range(dataframe.shape[0])}
-    tracked_ids = [None] * dataframe.shape[0]
-    track_ids = [None] * dataframe.shape[0]
-    track_confidences = [None] * dataframe.shape[0]
-    
-    for track in tracks:
-        median_id = np.nan * np.zeros(shape=(len(track.ids), len(track.meta["detections"][0].beeId)))
-        for i, detection in enumerate(track.meta["detections"]):
-            median_id[i, :] = detection.beeId
-        if use_weights_for_tracked_id:
-            confidences = np.product(np.abs(0.5 - median_id) * 2, axis=1)
-            median_id = np.average(median_id, axis=0, weights=confidences)
-        else:
-            median_id = np.median(median_id[:, 1:], axis=0)
-        track_confidence = np.product(np.abs(0.5 - median_id) * 2)
-        tracked_id = bb_utils.ids.BeesbookID.from_bb_binary(median_id).as_ferwar()
-        for ID in track.ids:
-            idx = detection_ids[ID]
-            tracked_ids[idx] = tracked_id
-            track_ids[idx] = track.id
-            track_confidences[idx] = track_confidence
-            
-    dataframe = dataframe.copy()
-    dataframe["track_id"] = track_ids
-    dataframe["track_confidence"] = track_confidences
-    dataframe["bee_id"] = tracked_ids
-    
-    if confidence_filter_tracks is not None and confidence_filter_tracks > 0.0:
-        dataframe = dataframe[~pd.isnull(dataframe.track_confidence)]
-        dataframe = dataframe[dataframe.track_confidence >= confidence_filter_tracks]
-    return dataframe
+    if homography_fn is None:
+        if homography_scale is None:
+            raise ValueError("Either homography_fn or homography_scale must be given.")
+        homography_fn = make_scaling_homography_fn(homography_scale)
 
-def plot_tracks(detections, tracks, fig=None, use_individual_id_for_color=True):
+    if type(dataframe_or_generator) is pd.DataFrame:
+        dataframe_or_generator = (dataframe_or_generator,)
+
+    def iterate_dataframes():
+        for df in dataframe_or_generator:
+            if df.shape[0] == 0:
+                continue
+            dt = datetime.datetime.fromtimestamp(df.timestamp.values[0], tz=pytz.UTC)
+            homography = homography_fn(cam_id, dt)
+            yield from iterate_dataframe_as_detections(df, homography)
+    
+    tracker = bb_tracking.repository_tracker.CamDataGeneratorTracker(
+        iterate_dataframes(),
+        cam_ids=(cam_id,),
+        progress_bar=None,
+        **tracker_settings)
+
+    tracks_dataframe = []
+    for track in tracker:
+        for detection in track.detections:
+            tracks_dataframe.append(dict(
+                bee_id=track.bee_id,
+                track_id=track.id,
+                x_pixels=detection.x_pixels, y_pixels=detection.y_pixels, orientation_pixels=detection.orientation_pixels,
+                x_hive=detection.x_hive, y_hive=detection.y_hive, orientation_hive=detection.orientation_hive,
+                timestamp_posix=detection.timestamp_posix, timestamp=detection.timestamp,
+                frame_id=detection.frame_id, detection_type=detection.detection_type, detection_index=detection.detection_index,
+                detection_confidence=bb_tracking.features.get_detection_confidence(detection)))
+    if len(tracks_dataframe) == 0:
+        return None
+    return pd.DataFrame(tracks_dataframe)
+
+def plot_tracks(tracks, fig=None, use_individual_id_for_color=True, use_pixel_coordinates=False):
     import matplotlib.cm
     import matplotlib.pyplot as plt
     
@@ -202,8 +202,12 @@ def plot_tracks(detections, tracks, fig=None, use_individual_id_for_color=True):
     else:
         id_to_color = list(set(tracks.bee_id.unique()))
         color_count = len(id_to_color)
-    colors = np.linspace(0.0, 1.0, num=color_count)
+    colors = np.linspace(0.0, 1.0, num=color_count+1)
     
+    x_coord, y_coord = "x_hive", "y_hive"
+    if use_pixel_coordinates:
+        x_coord, y_coord = "x_pixels", "y_pixels"
+
     cm = matplotlib.cm.hsv
     for track_idx, (track_id, df) in enumerate(tracks.groupby("track_id")):
         df = df.sort_values("timestamp")
@@ -212,19 +216,19 @@ def plot_tracks(detections, tracks, fig=None, use_individual_id_for_color=True):
             color_idx = id_to_color.index(df.bee_id.iloc[0])
         color = cm(colors[color_idx])
         bee_id = int(df.bee_id.values[0])
-        plt.scatter(df.xpos, df.ypos, c=color, alpha=0.2)
-        plt.plot(df.xpos.values, df.ypos.values, "k--")
-        plt.text(float(df.xpos.values[0]), float(df.ypos.values[0]), "#{:02d}({})".format(track_idx, bee_id),
+        plt.scatter(df[x_coord], df[y_coord], c=np.array([color]), alpha=0.2)
+        plt.plot(df[x_coord].values, df[y_coord].values, "k--")
+        plt.text(float(df[x_coord].values[0]), float(df[y_coord].values[0]), "#{:02d}({})".format(track_idx, bee_id),
                  color=color)
     if new_figure:
         plt.show()
 
-def display_tracking_results(path, frame_info, detections, tracks, image=None, fig_width=12):
+def display_tracking_results(tracks, path=None, image=None, fig_width=12):
     import matplotlib.pyplot as plt
 
     track_count = len(tracks.track_id.unique())
     print("Found {} detections belonging to {} unique tracks and {} individuals.".format(
-            detections.shape[0],
+            tracks.shape[0],
             track_count,
             len(tracks.bee_id.unique())))
     tracks_available = tracks.shape[0] > 0
@@ -238,60 +242,57 @@ def display_tracking_results(path, frame_info, detections, tracks, image=None, f
     
     fig = plt.figure(figsize=(fig_width, fig_width))
     if image is not None:
-        plt.imshow(image)
-    plot_tracks(detections, tracks, fig=fig)
+        plt.imshow(image, cmap="gray")
+    plot_tracks(tracks, fig=fig, use_pixel_coordinates=True)
     plt.show()
     
     print("Detection/track statistics:")
     # Show histogram of confidences, allowing to tune the tracking paramters.
-    if "confidence" in detections.columns:
+    if "detection_confidence" in tracks.columns:
         plt.figure(figsize=(fig_width, 2))
-        plt.hist(detections.confidence)
+        plt.hist(tracks.detection_confidence)
         plt.xlabel("Detection confidence\n(decoded ID correctness)")
         plt.xlim(-0.1, 1.1)
         plt.show()
     
-    plt.figure(figsize=(fig_width, 2))
-    plt.hist(tracks.track_confidence[~pd.isnull(tracks.track_confidence)])
-    plt.xlabel("Track confidence\n(track ID correctness)")
-    plt.xlim(-0.1, 1.1)
-    plt.show()
+    if "track_confidence" in tracks.columns:
+        plt.figure(figsize=(fig_width, 2))
+        plt.hist(tracks.track_confidence[~pd.isnull(tracks.track_confidence)])
+        plt.xlabel("Track confidence\n(track ID correctness)")
+        plt.xlim(-0.1, 1.1)
+        plt.show()
     
     # Show statistics about connected tracks
     if tracks_available:
         track_data = defaultdict(list)
         for track_id, df in tracks.groupby("track_id"):
-            df = df.sort_values("timestamp")
-            frame_differences = np.diff(df.frameIdx.values)
-            xy = df[["xpos", "ypos"]].values
-            distances = np.linalg.norm(xy[1:, :] - xy[:-1, :], axis=1)
-            distances = distances[frame_differences == 1]
-            time_differences = np.diff(df.timestamp.values)
-            
-            
-            track_data["distances"] += list(distances)
+            if df.shape[0] < 2:
+                continue
+            df = df.sort_values("timestamp_posix")
+            xy = df[["x_hive", "y_hive"]].values
+            distances = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+            time_differences = np.diff(df.timestamp_posix.values)
+            assert (time_differences.shape[0] == distances.shape[0])
+            track_data["speed"] += list(distances / time_differences)
             track_data["gap_length_seconds"] += list(time_differences)
-            track_data["gap_length_frames"] += list(frame_differences)
             
         plt.figure(figsize=(fig_width, 2))
-        plt.hist(track_data["distances"])
-        plt.xlabel("Pixel distances (Speed per frame)\nof tracked individuals (gaps ignored)")
+        plt.hist(track_data["speed"], bins=50)
+        plt.xlabel("Speed per frame in mm/s of tracked individuals")
         plt.show()
         
         fig, ax = plt.subplots(figsize=(fig_width, 2))
-        ax.hist(track_data["gap_length_seconds"])
+        ax.hist(track_data["gap_length_seconds"], bins=50)
         ax.set_xlabel("Seconds")
         #plt.xlabel("Gap length of individuals in successive frames")
         #plt.show()
         #fig, ax = plt.subplots(figsize=(fig_width, 2))
-        ax = ax.twiny()
-        ax.hist(track_data["gap_length_frames"])
-        ax.set_xlabel("Frames")
         plt.title("Gap length of individuals in successive frames")
         plt.tight_layout()
         plt.show()
         
     # Print information about the identified individuals based on their ID.
+    min_timestamp, max_timestamp = tracks.timestamp_posix.min(), tracks.timestamp_posix.max()
     print("Individual statistics:")
     for idx, (bee_id, df) in enumerate(tracks.groupby("bee_id")):
         bee_id = int(bee_id)
@@ -300,25 +301,29 @@ def display_tracking_results(path, frame_info, detections, tracks, image=None, f
                 bee_id, df.track_id.values[0], df.shape[0]))
             continue
         track_count = len(df.track_id.unique())
-        df = df.sort_values("timestamp")
-        xy = df[["xpos", "ypos"]].values
+        df = df.sort_values("timestamp_posix")
+        xy = df[["x_hive", "y_hive"]].values
         distances = np.linalg.norm(xy[1:, :] - xy[:-1, :], axis=1)
-        time_differences = np.diff(df.timestamp.values)
+        time_differences = np.diff(df.timestamp_posix.values)
         distances /= time_differences
-        frame_idx = df.frameIdx.values[1:]
+        timestamps = df.timestamp_posix.values[1:]
         
         fig, (ax, ax2) = plt.subplots(1, 2, figsize=(fig_width, 2) , gridspec_kw = {'width_ratios':[(fig_width - 2), 1]})
-        ax.plot(frame_idx, distances, "k-", label="Speed")
-        ax.set_ylabel("Pixels per second")
-        ax.set_xlabel("Frames")
+        ax.plot(timestamps, distances, "k-", label="Speed")
+        ax.set_ylabel("mm/s")
+        ax.set_xlabel("Timestamp")
         ax.legend(loc="upper left")
-        ax = ax.twinx()
-        ax.plot(frame_idx, df.confidence.values[1:], "g--", label="Decoder Confidence")
-        ax.plot(frame_idx, df.track_confidence.values[1:], "b:", label="Track Confidence", alpha=0.5)
-        ax.set_ylabel("Confidence\nHigher is better")
-        ax.legend(loc="upper right")
-        ax.set_xlim(0, tracks.frameIdx.max())
-        plt.title("Individual {} ({} different tracks)".format(bee_id, track_count))
+        ax.set_xlim(min_timestamp, max_timestamp)
+        if "detection_confidence" in df:
+            ax = ax.twinx()
+            ax.plot(timestamps, df.detection_confidence.values[1:], "g--", label="Decoder Confidence")
+            if "track_confidence" in df:
+                ax.plot(timestamps, df.track_confidence.values[1:], "b:", label="Track Confidence", alpha=0.5)
+            ax.set_xlim(min_timestamp, max_timestamp)
+            ax.set_ylabel("Confidence\nHigher is better")
+            ax.legend(loc="upper right")
+
+        plt.title("#{} (from {} tracks)".format(bee_id, track_count))
         draw_ferwar_id_on_axis(bee_id, ax2)
         plt.tight_layout()
         plt.show()

@@ -86,7 +86,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                             start_timestamp=None, fps=3.0, cam_id=0,
                             verbose=False, n_frames=None, progress=tqdm.auto.tqdm,
                             calculate_confidences=True, confidence_filter=None,
-                           use_parallel_jobs=False):
+                           use_parallel_jobs=False, clahe=False):
     """Takes a video or a sequence of images, applies the BeesBook tag detection pipeline on the video and puts the results in a pandas DataFrame.
     Note that this is not optimized for high performance cluster computing but instead for end-user usability.
 
@@ -129,6 +129,8 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             with a lower confidence value.
         use_parallel_jobs: bool
             Whether to use threading/multiprocessing.
+        clahe: bool
+            Whether to apply histogram equalization to the images.
     """
     if source_type == "auto":
         if isinstance(source_path, str):
@@ -165,6 +167,12 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 print("Stopping early...")
                 break
     
+    def preprocess_image(im):
+        if clahe:
+            im = skimage.exposure.equalize_adapthist(im, kernel_size=3 * tag_pixel_diameter)
+        im = (skimage.transform.rescale(im, scale, order=1, multichannel=False, anti_aliasing=False, mode='constant') * 255).astype(np.uint8)
+        return im
+
     def get_frames_from_images():
         import skimage.io
         for idx, (path, ts) in enumerate(zip(interruptable_frame_generator(source_path), timestamps)):
@@ -172,7 +180,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 im = skimage.io.imread(path, as_gray=True)            
             else:
                 im = path
-            im = (skimage.transform.rescale(im, scale, order=1, multichannel=False, anti_aliasing=False, mode='constant') * 255).astype(np.uint8)
+            im = preprocess_image(im)
             yield idx, ts, im
 
             if n_frames is not None and idx >= n_frames - 1:
@@ -182,7 +190,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
         frames_generator = bb_pipeline.io.raw_frames_generator(source_path, format=None)
         
         for idx, (im, ts) in enumerate(zip(interruptable_frame_generator(frames_generator), timestamps)):
-            im = (skimage.transform.rescale(im, scale, order=1, multichannel=False, anti_aliasing=False, mode='constant') * 255).astype(np.uint8)
+            im = preprocess_image(im)
             yield idx, ts, im
             
             if n_frames is not None and idx >= n_frames - 1:
@@ -215,7 +223,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
         required_results = pipeline_results[PipelineResult]    
         n_detections = required_results.orientations.shape[0]
         decoded_ids = [list(r) for r in list(required_results.ids)]
-        
+
         if n_detections > 0:
             frame_data = {
                 "localizerSaliency": required_results.tag_saliencies.flatten(),
@@ -226,6 +234,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 "zrotation": required_results.orientations[:, 0],
                 "timestamp": [ts] * n_detections,
                 "frameIdx": [idx] * n_detections,
+                "frameId": frame_id,
                 "detection_index": range(n_detections),
                 "detection_type": "TaggedBee"
             }
@@ -253,6 +262,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 "zrotation": [np.nan] * n_bees,
                 "timestamp": [ts] * n_bees,
                 "frameIdx": [idx] * n_bees,
+                "frameId": frame_id,
                 "detection_index": range(n_bees),
                 "detection_type": required_results.bee_types
             }
@@ -280,7 +290,8 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
         frame_info.append((idx, frame_id, ts))
         if frame_data is not None:
             video_dataframe.append(frame_data)
-        progress_bar.update()
+        if progress is not None:
+            progress_bar.update()
         
     source = get_frames_from_video
     if source_type == "image":
@@ -322,7 +333,10 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
     except KeyboardInterrupt:
         interrupted = True
     frame_info = list(sorted(frame_info))
-    video_dataframe = pd.concat(video_dataframe)
-    video_dataframe.sort_values("frameIdx", inplace=True)
+    if len(video_dataframe) > 0:
+        video_dataframe = pd.concat(video_dataframe)
+        video_dataframe.sort_values("frameIdx", inplace=True)
+    else:
+        video_dataframe = None
     
     return frame_info, video_dataframe
