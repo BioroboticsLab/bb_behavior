@@ -165,6 +165,8 @@ def track_detections_dataframe(dataframe_or_generator,
 
     def iterate_dataframes():
         for df in dataframe_or_generator:
+            if df is None:
+                continue
             if df.shape[0] == 0:
                 continue
             dt = datetime.datetime.fromtimestamp(df.timestamp.values[0], tz=pytz.UTC)
