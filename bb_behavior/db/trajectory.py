@@ -1,3 +1,4 @@
+import datetime
 import math
 import numba
 import numpy as np
@@ -503,4 +504,146 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         return None
     all_velocities = pd.concat(all_velocities, axis=0)
     all_velocities = all_velocities[(all_velocities.datetime >= dt_from) & (all_velocities.datetime <= dt_to)]
+    return all_velocities
+
+def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
+                                    cursor_is_prepared=False,
+                                    confidence_threshold=0.1,
+                                    additional_columns=set(),
+                                    window_size=datetime.timedelta(minutes=10),
+                                    max_gap_length=5, max_distance=100, max_time_distance=2.0):
+    """Retrieves the velocities of a bee over time.
+
+    Arguments:
+        bee_id: int
+            To query data from the database. In ferwar format.
+        dt_from, dt_to: datetime.datetime
+            Time interval to search for results.
+        cursor: pyscopg2.cursor
+            Optional. Connected database cursor.
+        cursor_is_prepared: bool
+            Whether to not execute prepare statements on the cursor.
+        confidence_threshold: float
+            Retrieves only detections above this threshold.
+        additional_columns: iterable(string)
+            Iterable of additional column names to query from the database.
+        window_size: datetime.timedelta
+            Specifies the chunk size in which the data is iterated over.
+        max_gap_length: int
+            Maximum number of detections to look ahead and look for a different detection
+            in case of encountering detections  a different camera or too far from the last detection.
+        max_distance: float
+            Maximum distance in mm over which calculate a velocity for two temporally adjacent detections.
+        max_time_distance: float
+            Maximum time duration in seconds over which calculate a velocity for two temporally adjacent detections.
+    """
+    if not cursor:
+        from contextlib import closing
+        with closing(base.get_database_connection("get_bee_velocities_from_detections")) as con:
+            return get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=con.cursor(), cursor_is_prepared=False,
+                                      confidence_threshold=confidence_threshold,
+                                      additional_columns=additional_columns,
+                                      window_size=window_size, max_gap_length=max_gap_length,
+                                      max_distance=max_distance, max_time_distance=max_time_distance)
+    
+    import pytz
+    import scipy.signal
+
+    required_columns = list(set(("cam_id", "timestamp", "x_pos_hive", "y_pos_hive", "orientation_hive")) | set(additional_columns))
+
+    if not cursor_is_prepared:       
+        cursor.execute("""PREPARE fetch_detections AS
+                SELECT {}
+                   FROM {} 
+                    WHERE timestamp >= $1
+                    AND timestamp < $2
+                    AND bee_id = $3
+                    AND bee_id_confidence > {}
+                    ORDER BY timestamp ASC
+                """.format(", ".join(required_columns), base.get_detections_tablename(), confidence_threshold))
+    
+    x_col_index = required_columns.index("x_pos_hive")
+    y_col_index = required_columns.index("y_pos_hive")
+    cam_id_col_index = required_columns.index("cam_id")
+    timestamp_col_index = required_columns.index("timestamp")
+
+    all_velocities = []
+
+    dt_current = dt_from
+    is_first = True
+    while dt_current < dt_to:
+        is_last = False
+        dt_current_end = dt_current + window_size
+        if dt_current_end > dt_to:
+            dt_current_end = dt_to
+            is_last = True
+
+        if is_first:
+            cursor.execute("EXECUTE fetch_detections(%s, %s, %s)", (dt_current, dt_current_end, bee_id))
+            is_first = False
+        detections = cursor.fetchall()
+        n_detections = len(detections)
+        # Let DB server prepare next chunk.
+        if not is_last:
+            dt_next_end = dt_current_end + window_size
+            if dt_next_end > dt_to:
+                dt_next_end = dt_to
+            cursor.execute("EXECUTE fetch_detections(%s, %s, %s)", (dt_current_end, dt_next_end, bee_id))
+
+        def get_next_detection(det_idx, last_x, last_y, last_ts, last_cam_id):
+            for next_idx in range(det_idx + 1, min(n_detections, det_idx + max_gap_length)):
+                next_detection = detections[next_idx]
+                _x, _y = next_detection[x_col_index], next_detection[y_col_index]
+                _cam_id, _ts = next_detection[cam_id_col_index], next_detection[timestamp_col_index]
+                distance = np.sqrt((last_x - _x) ** 2.0 + (last_y - _y) ** 2.0)
+
+                if (_ts > last_ts) and (_cam_id == last_cam_id) and (distance <= max_distance):
+                    return next_idx
+            return -1
+
+        last_detection = None
+        for det_idx in range(n_detections):
+            detection = detections[det_idx]
+            x, y = detection[x_col_index], detection[y_col_index]
+            cam_id, ts = detection[cam_id_col_index], detection[timestamp_col_index]
+
+            if last_detection is not None:
+                last_x, last_y, last_cam_id, last_ts = last_detection
+                if last_ts >= ts:
+                    continue
+
+                distance = np.sqrt((last_x - x) ** 2.0 + (last_y - y) ** 2.0)
+                if (last_cam_id != cam_id) or (distance > max_distance):
+                    next_idx = get_next_detection(det_idx, last_x, last_y, last_ts, last_cam_id)
+                    if next_idx != -1:
+                        det_idx = next_idx
+                        continue
+            
+            all_velocities.append(detection)
+                
+            last_detection = (x, y, cam_id, ts)
+
+        dt_current = dt_current_end
+    
+    if len(all_velocities) <= 2:
+        return None
+        
+    all_velocities = pd.DataFrame(all_velocities, columns=required_columns)
+    timestamp_deltas = np.diff([dt.timestamp() for dt in all_velocities.timestamp])
+    x, y = np.diff(all_velocities.x_pos_hive.values), np.diff(all_velocities.y_pos_hive.values)
+    distances = np.sqrt(np.square(x) + np.square(y))
+    v = distances / timestamp_deltas
+    cam_differences = np.diff(all_velocities.cam_id.values)
+    v[cam_differences != 0] = np.nan
+    v[timestamp_deltas > max_time_distance] = np.nan
+    v[distances > max_distance] = np.nan
+    v = scipy.signal.medfilt(v, kernel_size=3)
+
+    all_velocities = all_velocities.iloc[1:, :]
+    all_velocities["time_passed"] = timestamp_deltas
+    all_velocities["velocity"] = v
+    all_velocities.rename(dict(timestamp="datetime"), axis=1, inplace=True)
+
+    required_columns = list(set(["datetime", "velocity", "time_passed"]) | set(additional_columns))
+    all_velocities = all_velocities[required_columns]
     return all_velocities
