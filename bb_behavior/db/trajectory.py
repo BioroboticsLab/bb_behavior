@@ -643,7 +643,7 @@ def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
     all_velocities["time_passed"] = timestamp_deltas
     all_velocities["velocity"] = v
     all_velocities.rename(dict(timestamp="datetime"), axis=1, inplace=True)
-
+    all_velocities["datetime"] = [dt.astimezone(pytz.UTC) for dt in all_velocities.datetime]
     required_columns = list(set(["datetime", "velocity", "time_passed"]) | set(additional_columns))
     all_velocities = all_velocities[required_columns]
     return all_velocities
