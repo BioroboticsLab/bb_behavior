@@ -384,7 +384,7 @@ def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consist
 def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
                        cursor_is_prepared=False, progress=None,
                        confidence_threshold=0.1, fixup_velocities=True,
-                       additional_columns=set()):
+                       additional_columns=set(), max_mm_per_second=None):
     """Retrieves the velocities of a bee over time.
 
     Arguments:
@@ -404,13 +404,15 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
             Whether to assume that the timestamps are at 3Hz and smoothing them is okay.
         additional_columns: iterable(string)
             Iterable of additional column names to query from the database.
+        max_mm_per_second: float
+            Optional. All velocities above this value are considered unrealistic outliers and will be ignored.
     """
     if not cursor:
         from contextlib import closing
         with closing(base.get_database_connection("get_bee_velocities")) as con:
             return get_bee_velocities(bee_id, dt_from, dt_to, cursor=con.cursor(), cursor_is_prepared=False,
                                       progress=progress, confidence_threshold=confidence_threshold, fixup_velocities=fixup_velocities,
-                                      additional_columns=additional_columns)
+                                      additional_columns=additional_columns, max_mm_per_second=max_mm_per_second)
     
     import pytz
     import scipy.signal
@@ -489,12 +491,20 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
             timestamp_deltas = np.round(timestamp_deltas * 3.0) / 3.0
             timestamp_deltas[timestamp_deltas == 0.0] = 1.0 / 3.0
         v = v / timestamp_deltas
+        if max_mm_per_second is not None:
+            v[v > max_mm_per_second] = np.nan
         v = scipy.signal.medfilt(v, kernel_size=3)
         
+        valid_idx = ~pd.isnull(v)
+        timestamp_deltas = timestamp_deltas[valid_idx]
+        v = v[valid_idx]
+        datetimes = list(map(lambda x: x.replace(tzinfo=pytz.UTC), datetimes[:-1]))
+        datetimes = [datetimes[i] for i in range(len(datetimes)) if valid_idx[i]]
+
         columns_dict = dict(
                 velocity=v,
                 time_passed=timestamp_deltas,
-                datetime=list(map(lambda x: x.replace(tzinfo=pytz.UTC), datetimes[:-1])))
+                datetime=datetimes)
         for additional_column in additional_columns:
             columns_dict[additional_column] = value_series[required_columns.index(additional_column)][1:]
 
@@ -504,6 +514,7 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         return None
     all_velocities = pd.concat(all_velocities, axis=0)
     all_velocities = all_velocities[(all_velocities.datetime >= dt_from) & (all_velocities.datetime <= dt_to)]
+    all_velocities["datetime"] = pd.to_datetime(all_velocities.datetime)
     return all_velocities
 
 def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
