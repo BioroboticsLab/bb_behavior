@@ -511,7 +511,8 @@ def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
                                     confidence_threshold=0.1,
                                     additional_columns=set(),
                                     window_size=datetime.timedelta(minutes=10),
-                                    max_gap_length=5, max_distance=100, max_time_distance=2.0):
+                                    max_gap_length=5, max_distance=25, max_time_distance=2.0,
+                                    max_mm_per_second=15.0):
     """Retrieves the velocities of a bee over time.
 
     Arguments:
@@ -536,6 +537,8 @@ def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
             Maximum distance in mm over which calculate a velocity for two temporally adjacent detections.
         max_time_distance: float
             Maximum time duration in seconds over which calculate a velocity for two temporally adjacent detections.
+        max_mm_per_second: float
+            All velocities above this value are considered unrealistic outliers and will be ignored.
     """
     if not cursor:
         from contextlib import closing
@@ -544,7 +547,7 @@ def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
                                       confidence_threshold=confidence_threshold,
                                       additional_columns=additional_columns,
                                       window_size=window_size, max_gap_length=max_gap_length,
-                                      max_distance=max_distance, max_time_distance=max_time_distance)
+                                      max_distance=max_distance, max_time_distance=max_time_distance, max_mm_per_second=max_mm_per_second)
     
     import pytz
     import scipy.signal
@@ -637,6 +640,7 @@ def get_bee_velocities_from_detections(bee_id, dt_from, dt_to, cursor=None,
     v[cam_differences != 0] = np.nan
     v[timestamp_deltas > max_time_distance] = np.nan
     v[distances > max_distance] = np.nan
+    v[v > max_mm_per_second] = np.nan
     v = scipy.signal.medfilt(v, kernel_size=3)
 
     all_velocities = all_velocities.iloc[1:, :]
