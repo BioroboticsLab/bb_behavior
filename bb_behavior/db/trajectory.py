@@ -417,26 +417,16 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
     import pytz
     import scipy.signal
 
-    required_columns = list(set(("timestamp", "x_pos_hive", "y_pos_hive", "orientation_hive", "track_id")) | set(additional_columns))
+    required_columns = list(set(("cam_id", "timestamp", "x_pos_hive", "y_pos_hive", "orientation_hive", "track_id")) | set(additional_columns))
 
-    if not cursor_is_prepared:
-        cursor.execute("""PREPARE fetch_track_ids_for_bee AS
-                SELECT 
-                    track_id, MIN(timestamp), MAX(timestamp)
-                    FROM {}
-                    WHERE timestamp >= $1
-                       AND timestamp <= $2
-                       AND bee_id = $3
-                    GROUP BY track_id
-                    """.format(base.get_detections_tablename()))
-        
-        cursor.execute("""PREPARE fetch_tracks AS
+    if not cursor_is_prepared:       
+        cursor.execute("""PREPARE fetch_detections AS
                 SELECT {}
                    FROM {} 
-                   WHERE
-                       track_id = ANY($1)
-                       AND bee_id_confidence > {}
-                       ORDER BY track_id, timestamp ASC
+                    WHERE timestamp >= $1
+                    AND timestamp < $2
+                    AND bee_id = $3
+                    AND bee_id_confidence > {}
                 """.format(", ".join(required_columns), base.get_detections_tablename(), confidence_threshold))
     
     progress_bar = lambda x: x
@@ -447,39 +437,53 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         from tqdm import tqdm_notebook
         progress_bar = tqdm_notebook
     
-    query_args = (dt_from, dt_to, bee_id)
-    cursor.execute("EXECUTE fetch_track_ids_for_bee (%s, %s, %s)", query_args)
-    track_ids = cursor.fetchall()
-    if not track_ids:
-        return None
+    x_col_index = required_columns.index("x_pos_hive")
+    y_col_index = required_columns.index("y_pos_hive")
+    cam_id_col_index = required_columns.index("cam_id")
+    timestamp_col_index = required_columns.index("timestamp")
+    track_id_col_index = required_columns.index("track_id")
 
-    track_ids = list(sorted(track_ids, key=lambda x: x[1]))
-    track_ids = [track_ids[0][0]] + [track_ids[i][0] for i in range(1, len(track_ids)) if track_ids[i][1] > track_ids[i-1][2]]
-    
-    cursor.execute("EXECUTE fetch_tracks (%s)", (track_ids, ))
+    query_args = (dt_from, dt_to, bee_id)
+    cursor.execute("EXECUTE fetch_detections (%s, %s, %s)", query_args)
     all_track_data = cursor.fetchall()
 
-    def iterate_tracks():
-        track_id_index = required_columns.index("track_id")
-        track_data = []
-        dummy_row = (None,) * len(required_columns)
-        for row in itertools.chain(all_track_data, [dummy_row]):
-            if track_data and row[track_id_index] != track_data[-1][track_id_index]:
-                yield track_data[-1][track_id_index], track_data
-                track_data = []
-            track_data.append(row)
+    # Order by track ID.
+    track_id_data = dict()
+    for row in all_track_data:
+        track_id = row[track_id_col_index]
+        if track_id not in track_id_data:
+            track_id_data[track_id] = []
+        track_id_data[track_id].append(row)
+
+    # Order by time.
+    sorted_track_ids = list()
+    for key, val in track_id_data.items():
+        val = sorted(val, key=lambda x: x[timestamp_col_index])
+        track_id_data[key] = val
+        sorted_track_ids.append((val[0][timestamp_col_index], key))
+    sorted_track_ids = sorted(sorted_track_ids)
 
     all_velocities = []
-    
-    for _, track in progress_bar(iterate_tracks()):
+    last_track_end_timestamp = None
+
+    for _, track_id in progress_bar(sorted_track_ids):
+        track = track_id_data[track_id]
+
         if not track:
             continue
+        
+        if last_track_end_timestamp is not None:
+            track_begin_timestamp = track[0][timestamp_col_index]
+            if track_begin_timestamp < last_track_end_timestamp:
+                continue
+        last_track_end_timestamp = track[-1][timestamp_col_index]
+
         value_series = tuple(zip(*track))
-        datetimes = value_series[required_columns.index("timestamp")]
+        datetimes = value_series[timestamp_col_index]
         if len(datetimes) < 2:
             continue
-        x = value_series[required_columns.index("x_pos_hive")]
-        y = value_series[required_columns.index("y_pos_hive")]
+        x = value_series[x_col_index]
+        y = value_series[y_col_index]
         
         timestamp_deltas = [dt.timestamp() for dt in datetimes]
         x, y, timestamp_deltas = np.diff(x), np.diff(y), np.diff(timestamp_deltas)
@@ -513,7 +517,7 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
     if not all_velocities:
         return None
     all_velocities = pd.concat(all_velocities, axis=0)
-    all_velocities = all_velocities[(all_velocities.datetime >= dt_from) & (all_velocities.datetime <= dt_to)]
+    all_velocities = all_velocities[(all_velocities.datetime >= dt_from) & (all_velocities.datetime < dt_to)]
     all_velocities["datetime"] = pd.to_datetime(all_velocities.datetime)
     return all_velocities
 
