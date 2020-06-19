@@ -56,13 +56,13 @@ def make_scaling_homography_fn(pixels_to_millimeter_ratio):
     return scaling_homography_fn
 
 def get_default_tracker_settings(detection_model_path, tracklet_model_path,
-        detection_classification_threshold=0.5, tracklet_classification_threshold=0.65):
+        detection_classification_threshold=0.25, tracklet_classification_threshold=0.8):
 
     detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
     tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
 
     tracklet_kwargs = dict(
-        max_distance_per_second = 200,
+        max_distance_per_second = 20.0,
         n_features=17,
         detection_feature_fn=bb_tracking.features.get_detection_features,
         detection_cost_fn=detection_model.predict_cost,
@@ -70,8 +70,8 @@ def get_default_tracker_settings(detection_model_path, tracklet_model_path,
         )
 
     track_kwargs = dict(
-        max_distance_per_second = 200,
-        n_features=8,
+        max_distance_per_second = 20.0,
+        n_features=10,
         tracklet_feature_fn=bb_tracking.features.get_track_features,
         tracklet_cost_fn=tracklet_model.predict_cost,
         max_cost=1.0 - tracklet_classification_threshold
@@ -183,7 +183,7 @@ def track_detections_dataframe(dataframe_or_generator,
     for track in tracker:
         for detection in track.detections:
             tracks_dataframe.append(dict(
-                bee_id=track.bee_id,
+                bee_id=track.bee_id, bee_id_confidence=track.bee_id_confidence,
                 track_id=track.id,
                 x_pixels=detection.x_pixels, y_pixels=detection.y_pixels, orientation_pixels=detection.orientation_pixels,
                 x_hive=detection.x_hive, y_hive=detection.y_hive, orientation_hive=detection.orientation_hive,
