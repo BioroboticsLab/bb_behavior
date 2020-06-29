@@ -30,6 +30,7 @@ from ..plot.misc import draw_ferwar_id_on_axis
 from collections import defaultdict, namedtuple
 import datetime, pytz
 import dill
+import math
 import numpy as np
 import pandas as pd
 import scipy.spatial
@@ -113,11 +114,18 @@ def iterate_dataframe_as_detections(dataframe, H):
             timestamp = np.float64(timestamp)
             
             bee = Bee(xpos, ypos, idx, localizer_saliency)
-            
+            if type(bit_probabilities) is list:
+                bit_probabilities = np.array(bit_probabilities)
+            elif isinstance(bit_probabilities, np.ndarray):
+                pass
+            else:
+                assert (bit_probabilities is None) or math.isnan(bit_probabilities)
+                bit_probabilities = None
+
             detection_type = detection_type_map[detection_type]
             detection = bb_tracking.data_walker.make_detection(bee, H=H,
                                        frame_id=frame_id, timestamp=timestamp, orientation=float(orientation),
-                                       detection_type=detection_type, bit_probabilities=np.array(bit_probabilities),
+                                       detection_type=detection_type, bit_probabilities=bit_probabilities,
                                        no_datetime_timestamps=True)
             frame_detections.append(detection)
             
