@@ -7,3 +7,5 @@ scikit-learn
 torch
 torchvision
 matplotlib
+opencv-python
+astropy
