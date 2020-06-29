@@ -190,7 +190,21 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
         frames_generator = bb_pipeline.io.raw_frames_generator(source_path, format=None)
         
         for idx, (im, ts) in enumerate(zip(interruptable_frame_generator(frames_generator), timestamps)):
+            assert im is not None
+            # Skip broken videos.
+            if im.shape[0] <= 0:
+                print("Warning: Could not read frame {} of file {}. The video is corrupt.".format(idx, source_path))
+                break
+            # Skip broken frames because clahe would fail on constant input.
+            if im.min() == im.max():
+                print("Warning: Frame {} of file {} is empty.".format(idx, source_path))
+                continue
+            
+            assert im.shape[0] > 0
+            assert im.shape[1] > 0
+
             im = preprocess_image(im)
+
             yield idx, ts, im
             
             if n_frames is not None and idx >= n_frames - 1:
