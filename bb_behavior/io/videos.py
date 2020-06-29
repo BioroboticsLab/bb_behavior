@@ -52,7 +52,7 @@ def get_first_frame_from_video(vid_file):
     capture = cv2.VideoCapture(vid_file)
     success, image = capture.read()
     if not success:
-        return None
+        raise ValueError("Could not read first frame. Is the video file valid? ({})".format(vid_file))
     return image
 
 def extract_frames_from_video(video_path, target_directory, start_frame=0, n_frames=1,codec="hevc_cuvid", command="ffmpeg", scale=1.0, framerate=3, output_format="bmp"):
