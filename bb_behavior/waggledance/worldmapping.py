@@ -16,12 +16,15 @@ def extract_azimuth(time, latitude, longitude):
 
     Returns:
         azimuth: float
+        Note that the azimuth is 0 in the direction of the real north.
+        That means, unlike the standard coordinate system of 0=right, the return value has 0=up.
+        Direction is counter-clockwise.
     """
     earth_loc = astropy.coordinates.EarthLocation(lat=latitude*u.deg, lon=longitude*u.deg, height=0*u.m)
     
     time = astropy.time.Time(time.astimezone(pytz.UTC), scale="utc")
     sun_loc = astropy.coordinates.get_sun(time)
-    azimuth = -sun_loc.transform_to(astropy.coordinates.AltAz(obstime=time, location=earth_loc)).az
+    azimuth = sun_loc.transform_to(astropy.coordinates.AltAz(obstime=time, location=earth_loc)).az
 
     return azimuth.rad
 
@@ -29,7 +32,9 @@ def decode_waggle_dance_angle(hive_angle, time, distance=10.0, latitude=52.45713
     """Translates an in-hive waggle dance angle to a world angle.
     Arguments:
         hive_angle: float
-            In-hive angle, relative to gravity (in radians).
+            In-hive angle, relative to gravity (in radians), counter-clockwise.
+            If the angle is available in a standard coordinate system (i.e. 0=right, counter-clockwise),
+            just subtract np.pi/2.0 beforehand.
         time: datetime.datetime with timezone
         distance: float
             Distance in arbitrary units (e.g. meters or pixels) to scale the resulting coordinates.
@@ -38,19 +43,29 @@ def decode_waggle_dance_angle(hive_angle, time, distance=10.0, latitude=52.45713
     Returns:
         world_angle: float
             Angle in the world (radians).
+            The angle is in a standard coordinate system (i.e. 0=right/east)
+            and increases in counter-clockwise direction.
         x, y: float, float
             Offset of the indicated foraging position with the hive being at 0|0.
             ||[x, y]||_2 == distance.
         
     """
+    if np.isnan(hive_angle):
+        return np.nan, np.nan, np.nan, np.nan
+
     # Angle is in radians.
     assert hive_angle >= -2.0 * math.pi
     assert hive_angle <= +2.0 * math.pi
     
-    azimuth_rad = extract_azimuth(time, latitude, longitude)
+    # N0, E90
+    azimuth_rad = extract_azimuth(time, latitude, longitude) 
+    # N0, E-90
+    azimuth_rad = -azimuth_rad
+    # N90, E0
+    azimuth_rad = azimuth_rad + np.pi / 2.0
     
     world_angle = azimuth_rad + hive_angle
-    return world_angle, distance * np.cos(world_angle), distance * np.sin(world_angle)
+    return world_angle, distance * np.cos(world_angle), distance * np.sin(world_angle), azimuth_rad
 
 def get_default_map_image(path="/mnt/storage/david/data/beesbook/foragergroups/map.png"):
     """Returns a screenshot of a map as well as the coordinates in pixels of the hive and a resolution.
@@ -94,11 +109,12 @@ def plot_waggle_locations(world_locations, ax=None, map_image=None, map_hive_x=N
         ax = plt.gca()
     pixel_locations = world_locations * meters_to_pixels
     pixel_locations[:, 0] += map_hive_x
-    pixel_locations[:, 1] += map_hive_y
+    # Note that the default coordinate system origin after plotting an image is at the top-left corner.
+    pixel_locations[:, 1] = map_hive_y - pixel_locations[:, 1]
 
-
-    ax.scatter([pixel_locations[:,0]], [pixel_locations[:, 1]], alpha=0.25, marker="o", c=color)
-    if kde_cmap:
+    ax.imshow(map_image)
+    ax.scatter([pixel_locations[:,0]], [pixel_locations[:, 1]], marker="o", c=color)
+    if kde_cmap and pixel_locations.shape[0] > 3:
         import seaborn as sns
         sns.kdeplot(pixel_locations[:,0], pixel_locations[:,1],
                     ax=ax, alpha=0.5, cmap=kde_cmap, legend=True, shade=False, shade_lowest=False)
