@@ -66,6 +66,7 @@ def minimize_objective(fun, arg_space, max_evals=100, *args, **kwargs):
 def plot_roc_curve(Y_true, Y_predicted, ax=None):
 
     fpr, tpr, roc_thresholds = sklearn.metrics.roc_curve(Y_true, Y_predicted)
+    roc_auc = sklearn.metrics.roc_auc_score(Y_true, Y_predicted)
     fig = None
     if ax is None:
         fig, ax = plt.subplots(figsize=(5, 5))
@@ -76,7 +77,7 @@ def plot_roc_curve(Y_true, Y_predicted, ax=None):
     ax.set_ylim([0.0, 1.05])
     ax.set_xlabel('False Positive Rate')
     ax.set_ylabel('True Positive Rate')
-    ax.set_title('ROC curve')
+    ax.set_title('ROC curve (ROC AUC {:0.2%})'.format(roc_auc))
     ax.set_aspect("equal")
     
     if fig:
