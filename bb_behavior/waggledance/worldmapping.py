@@ -98,7 +98,8 @@ def plot_hive_map(map_image=None, map_hive_x=None, map_hive_y=None, figsize=(16,
     
     return ax
 
-def plot_waggle_locations(world_locations, ax=None, map_image=None, map_hive_x=None, map_hive_y=None, meters_to_pixels=None, color="g", kde_cmap="Greens"):
+def plot_waggle_locations(world_locations, ax=None, map_image=None, map_hive_x=None, map_hive_y=None, meters_to_pixels=None, color="g", kde_cmap="Greens",
+                            scatter_alpha=1.0, kde_alpha=0.5, scatter_kws=dict(), kde_kws=dict()):
     """Takes a list of world locations (e.g. output from decode_waggle_dance) and plots them on an axis.
     """
 
@@ -113,11 +114,12 @@ def plot_waggle_locations(world_locations, ax=None, map_image=None, map_hive_x=N
     pixel_locations[:, 1] = map_hive_y - pixel_locations[:, 1]
 
     ax.imshow(map_image)
-    ax.scatter([pixel_locations[:,0]], [pixel_locations[:, 1]], marker="o", c=color)
+    ax.scatter([pixel_locations[:,0]], [pixel_locations[:, 1]], marker="x", c=color, alpha=scatter_alpha, **scatter_kws)
     if kde_cmap and pixel_locations.shape[0] > 3:
         import seaborn as sns
         sns.kdeplot(pixel_locations[:,0], pixel_locations[:,1],
-                    ax=ax, alpha=0.5, cmap=kde_cmap, legend=True, shade=False, shade_lowest=False)
+                    ax=ax, alpha=kde_alpha, cmap=kde_cmap, legend=True, shade=False, shade_lowest=False,
+                    **kde_kws)
     
     plt.axis("off")
     plt.xlim(0, map_image.shape[1])
