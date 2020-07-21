@@ -328,3 +328,4 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
             next_frame_container_id += 1
         
         commit_framecontainer_batch()
+    con.close()
