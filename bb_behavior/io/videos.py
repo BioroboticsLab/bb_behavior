@@ -120,7 +120,8 @@ class BeesbookVideoManager():
         self.last_requests = []
 
         self.command = "ffmpeg"
-        self.codec = "hevc_cuvid"
+        self.codec = "hevc"
+        self.output_format = "png"
 
         self.loader_thread_pool = PoolExecutor(max_workers=8)
 
@@ -141,13 +142,13 @@ class BeesbookVideoManager():
             retain_last_n_requests = min(retain_last_n_requests, len(self.last_requests))
 
             for i in range(retain_last_n_requests):
-                retained_images |= {str(f_id) + ".bmp" for f_id in self.last_requests[-(i+1)]}
+                retained_images |= {str(f_id) + "." + self.output_format for f_id in self.last_requests[-(i+1)]}
             del self.last_requests[0:(len(self.last_requests) - retain_last_n_requests)]
 
         # Check the directory for files and remove all old images.
         for filename in os.listdir(self.cache_path):
-            # Safety - only remove *.bmp files.
-            if filename.endswith(".bmp") and filename not in retained_images:
+            # Safety - only remove our image files.
+            if filename.endswith("." + self.output_format) and filename not in retained_images:
                 os.remove(self.cache_path + filename)
 
     def get_raw_video_path(self, video_name):
@@ -187,14 +188,18 @@ class BeesbookVideoManager():
         """
         assert (n_frames == len(frame_ids))
         with tempfile.TemporaryDirectory(dir=self.cache_path, prefix="vidtmp_") as dirpath:
+            try:
             extract_frames_from_video(self.get_raw_video_path(video_name), target_directory=dirpath,
                 start_frame=start_frame, n_frames=n_frames,
-                command=self.command, codec=self.codec)
+                    command=self.command, codec=self.codec, output_format=self.output_format)
+            except Exception as e:
+                print("Error at video {}".format(self.get_raw_video_path(video_name),))
+                raise e
             
             for (frame_id, filepath) in zip(frame_ids, sorted(os.listdir(dirpath))):
                 full_filepath = dirpath+"/"+filepath
                 if os.path.getsize(full_filepath) > 0:
-                    shutil.move(full_filepath, self.cache_path + str(frame_id) + ".bmp")
+                    shutil.move(full_filepath, self.cache_path + str(frame_id) + "." + self.output_format)
                 else:
                     print("Zero-size file created by ffmpeg.")
 
@@ -206,7 +211,7 @@ class BeesbookVideoManager():
             frame_path: string
                 Path to the image belonging to frame_id.
         """
-        return self.cache_path + str(frame_id) + ".bmp"
+        return self.cache_path + str(frame_id) + "." + self.output_format
     
     def is_frame_cached(self, frame_id):
         """Checks whether a specific frame is available on disk.
@@ -233,7 +238,7 @@ class BeesbookVideoManager():
             return None
         return skimage.io.imread(self.get_frame_id_path(frame_id), as_gray=True, plugin="matplotlib")
 
-    def extract_frames_from_metadata(self, frame_ids, frame_indices, video_names):
+    def extract_frames_from_metadata(self, frame_ids, frame_indices, video_names, verbose=False):
         """Takes lists of frame IDs and metadata (coming from db.get_frame_metadata)
         and extracts the video files into the cache.
 
@@ -243,6 +248,8 @@ class BeesbookVideoManager():
                 Index of the frame in its video file.
             video_name: list(string)
                 Name of video file of each frame.
+            verbose: bool
+                Whether to print additional information.
         """
         unique_videos = set(video_names)
 
@@ -257,6 +264,8 @@ class BeesbookVideoManager():
                 video_indices, video_frame_ids = zip(*video_data[last_cut:cut])
                 start_idx, end_idx = video_indices[0], video_indices[-1]
                 assert end_idx >= start_idx
+                if verbose:
+                    print("Extracting from {}: frame {}-{}".format(self.get_raw_video_path(video_name), start_idx, end_idx))
                 self.extract_frames(video_name, start_idx, end_idx - start_idx + 1, video_frame_ids)
                 last_cut = cut
 
@@ -279,7 +288,7 @@ class BeesbookVideoManager():
             frame_indices = [meta[2] for meta in metadata]
             video_names = [meta[5] for meta in metadata]
             assert frame_ids == [meta[0] for meta in metadata]
-            self.extract_frames_from_metadata(frame_ids, frame_indices, video_names)
+            self.extract_frames_from_metadata(frame_ids, frame_indices, video_names, verbose=verbose)
 
     def get_frames(self, frame_ids, cursor=None, verbose=False):
         """Returns a list of numpy arrays that correspond to whole frame images for the given frame IDs.
@@ -295,5 +304,6 @@ class BeesbookVideoManager():
         self.cache_frames(all_frame_ids, verbose=verbose)
         self.last_requests.append(all_frame_ids)
 
-        images = self.loader_thread_pool.map(self.get_frame, all_frame_ids)
-        return list(images)
+        for frame_id in frame_ids:
+            assert self.is_frame_cached(frame_id)
+
