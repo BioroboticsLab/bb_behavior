@@ -36,8 +36,8 @@ class DatabaseCursorContext(object):
             self._cursor.execute("""SET temp_tablespaces to "{}";""".format(temp_tablespace))
 
         if base.get_season_identifier() == "berlin_2016": # Needs adjustment for the new metadata structure.
-            self._cursor.execute("PREPARE get_neighbour_frames AS "
-            "SELECT index, fc_id, timestamp FROM plotter_frame WHERE frame_id = $1 LIMIT 1")
+            self._cursor.execute("PREPARE get_frame_info AS "
+            "SELECT cam_id, index, fc_id, timestamp FROM {} WHERE frame_id = $1 LIMIT 1".format(base.get_frame_metadata_tablename()))
 
         self._cursor.execute("PREPARE get_all_frame_ids AS "
         "SELECT datetime, frame_id, cam_id FROM {} WHERE datetime >= $1 AND datetime < $2".format(base.get_frame_metadata_tablename()))
@@ -69,14 +69,12 @@ class DatabaseCursorContext(object):
             track_id FROM {} WHERE frame_id=ANY($1) AND bee_id=ANY($2)
             ORDER BY timestamp ASC""".format(base.get_detections_tablename()))
 
+        self._cursor.execute("PREPARE get_frame_metadata AS "
+            "SELECT frame_id, timestamp, index, fc_id FROM {} WHERE frame_id = ANY($1)".format(base.get_frame_metadata_tablename()))
         # For metadata.get_frame_metadata
-        if base.get_season_identifier() == "berlin_2016": # Needs adjustment for the new metadata structure.
-            self._cursor.execute("PREPARE get_frame_metadata AS "
-            "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
-            # For metadata.get_frame_metadata
-            self._cursor.execute("PREPARE get_frame_container_info AS "
-            "SELECT video_name FROM plotter_framecontainer "
-            "WHERE id = $1 LIMIT 1")
+        self._cursor.execute("PREPARE get_frame_container_info AS "
+            "SELECT video_name FROM {} "
+            "WHERE id = $1 LIMIT 1".format(base.get_framecontainer_metadata_tablename()))
 
         return self._cursor
 
@@ -255,11 +253,13 @@ def interpolate_trajectory(trajectory):
         Returns:
             numpy array (float 32) of shape (N,) containing 1.0 in places where the original trajectory contained values and 0.0 for interpolated values.
     """
+    # There are three states: all values valid, orientation nan, all values nan.
+    # Thus, checking the orientation suffices.
+    rows_with_nans = np.isnan(trajectory[:, 2])
+    assert rows_with_nans.shape[0] == trajectory.shape[0]
+    not_nans = ~rows_with_nans
     
-    nans = np.isnan(trajectory[:,0])
-    not_nans = ~nans
-    
-    nans_idx = np.where(nans)[0]
+    nans_idx = np.where(rows_with_nans)[0]
     valid_idx = np.where(not_nans)[0]
     if len(valid_idx) < 2:
         return np.zeros(shape=(trajectory.shape[0]), dtype=np.float32)
@@ -285,7 +285,10 @@ def interpolate_trajectory(trajectory):
 
         dt = (i - begin_t_idx) / 3.0
         e = [m[i] * dt + last_t[i] for i in range(3)]
-        trajectory[i] = e
+        # Only replace previously missing values.
+        for j in range(3):
+            if np.isnan(trajectory[i, j]):
+                trajectory[i, j] = e[j]
         
     return not_nans.astype(np.float32)
 

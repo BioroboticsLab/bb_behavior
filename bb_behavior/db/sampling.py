@@ -1,3 +1,4 @@
+import datetime, pytz
 import math
 import numba
 import numpy as np
@@ -229,18 +230,18 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
                                         n_frames_left=n_frames_left, n_frames_right=n_frames_right, seconds_left=seconds_left,
                                         seconds_right=seconds_right, s_frame_margin_leeway=s_frame_margin_leeway)
     
-    f_index, frame_container_id, timestamp = None, None, None
+    cam_id, f_index, frame_container_id, timestamp = None, None, None, None
     if not cursor_is_prepared:
-        cursor.execute("SELECT index, fc_id, timestamp FROM plotter_frame WHERE frame_id = %s LIMIT 1", (frame_id,))
+        cursor.execute("SELECT cam_id, index, fc_id, timestamp FROM {} WHERE frame_id = %s LIMIT 1".format(base.get_frame_medatata_tablename()), (frame_id,))
     else:
-        cursor.execute("EXECUTE get_neighbour_frames (%s)", (frame_id,))
+        cursor.execute("EXECUTE get_frame_info (%s)", (frame_id,))
 
     results = cursor.fetchone()
-    f_index, frame_container_id, timestamp = results
+    cam_id, f_index, frame_container_id, timestamp = results
     ts_from = timestamp - seconds_left - s_frame_margin_leeway
     ts_to = timestamp + seconds_right + s_frame_margin_leeway
     
-    neighbour_frames = get_frames(cam_id=None, ts_from=ts_from, ts_to=ts_to, cursor=cursor, cursor_is_prepared=cursor_is_prepared, frame_container_id=frame_container_id)
+    neighbour_frames = get_frames(cam_id=cam_id, ts_from=ts_from, ts_to=ts_to, cursor=cursor, cursor_is_prepared=cursor_is_prepared)
 
     if s_frame_margin_leeway > 0.0:
         # We have potentially queried more frames and now need to filter them.

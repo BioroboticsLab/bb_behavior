@@ -36,10 +36,10 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
                 include_video_name=include_video_name, warnings_as_errors=warnings_as_errors)
     if not cursor_is_prepared:
         cursor.execute("PREPARE get_frame_metadata AS "
-           "SELECT frame_id, timestamp, index, fc_id FROM plotter_frame WHERE frame_id = ANY($1)")
+           "SELECT frame_id, timestamp, index, fc_id FROM {} WHERE frame_id = ANY($1)".format(base.get_frame_metadata_tablename()))
         cursor.execute("PREPARE get_frame_container_info AS "
-          "SELECT video_name FROM plotter_framecontainer "
-          "WHERE id = $1 LIMIT 1")
+          "SELECT video_name FROM {} "
+          "WHERE id = $1 LIMIT 1".format(base.get_framecontainer_metadata_tablename()))
 
     # Fetch the widely available metadata.
     frames = list(map(int, frames))
