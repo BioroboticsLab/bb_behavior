@@ -8,6 +8,9 @@ import datetime
 def save_tracks(track_map, filename, timestamps=None, frame_ids=None, track_names=None, meta=None):
     meta = meta or dict()
     if timestamps is not None:
+        # Convert datetime.datetime to posix timestamps.
+        if type(timestamps[0]) is datetime.datetime:
+            timestamps = [dt.timestamp() for dt in timestamps]
         meta["timestamps"] = timestamps
     if frame_ids is not None:
         meta["frame_ids"] = [int(fid) for fid in frame_ids]
@@ -29,8 +32,9 @@ def save_tracks(track_map, filename, timestamps=None, frame_ids=None, track_name
             x, y = frame_xy[0], frame_xy[1]
             if np.isnan(x):
                 continue
-            node = dict(valid="true", id=str(track_id), coordinateUnit="px",
-                       x="{:1.3f}".format(x), y="{:1.3f}".format(y), time="0", timeString="")
+            node = dict(valid="true", id=str(track_id), coordinateUnit="cm",
+                       x="{:1.3f}".format(x / 4.0), y="{:1.3f}".format(y / 4.0), # Dummy cm values.
+                       xpx="{:d}".format(int(x)), ypx="{:d}".format(int(y)), time="0", timeString="")
             if len(frame_xy) > 2:
                 rad = frame_xy[2]
                 deg = math.degrees(rad)
@@ -157,11 +161,12 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
             Determines what the data constitutes of. frame_id and bee ID or frame_id and detection index.
     """
     if cursor is None:
-        with get_database_connection("biotracker_data") as db:
+        import contextlib
+        with contextlib.closing(get_database_connection("biotracker_data")) as db:
             cursor = db.cursor()
-
-            cursor.execute("PREPARE get_timestamp AS SELECT timestamp FROM plotter_frame WHERE frame_id=$1")
-            cursor.execute("PREPARE get_bee_id_track_id AS SELECT bee_id, track_id FROM bb_detections_2016_stitched WHERE frame_id=$1 AND detection_idx=$2")
+            from ..db.base import get_frame_metadata_tablename, get_detections_tablename
+            cursor.execute("PREPARE get_timestamp AS SELECT timestamp FROM {} WHERE frame_id=$1".format(get_frame_metadata_tablename()))
+            cursor.execute("PREPARE get_bee_id_track_id AS SELECT bee_id, track_id FROM {} WHERE frame_id=$1 AND detection_type=$2 AND detection_idx=$3".format(get_detections_tablename()))
 
             return load_annotated_bee_video(video_filename, tracks_filename, annotations_filename, cursor=cursor, object_name=object_name)
 
@@ -171,10 +176,10 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
         dt = datetime.datetime.utcfromtimestamp(ts)
         return dt.replace(tzinfo=datetime.timezone.utc)
 
-    def get_bee_id_track_id_for_detection_idx(frame_id, detection_idx):
+    def get_bee_id_track_id_for_detection_idx(frame_id, detection_type, detection_idx):
         if detection_idx is None:
-            return None
-        cursor.execute("EXECUTE get_bee_id_track_id (%s, %s)", (frame_id, detection_idx))
+            return None, None
+        cursor.execute("EXECUTE get_bee_id_track_id (%s, %s, %s)", (frame_id, detection_type, detection_idx))
         bee_id, track_id = cursor.fetchone()[0:2]
         return bee_id, track_id
 
@@ -219,15 +224,16 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
 
         bee_ids = None, None
         track_ids = None, None
+        detection_types = None, None
         detection_indices = None, None
         if has_detection_index_instead_of_id:
             def object_name_to_bee_id_track_id(object_name):
                 if object_name is None:
-                    return (None, None, None)
-                frame_id, detection_idx = object_name.split(" ")
-                return get_bee_id_track_id_for_detection_idx(int(frame_id), int(detection_idx)) + (int(detection_idx), )
+                    return (None, None, None, None)
+                frame_id, detection_type, detection_idx = list(map(int, object_name.split(" ")))
+                return get_bee_id_track_id_for_detection_idx(frame_id, detection_type, detection_idx) + (detection_type, detection_idx)
             bee_ids_track_ids = list(map(object_name_to_bee_id_track_id, object_names))
-            bee_ids, track_ids, detection_indices = zip(*bee_ids_track_ids)
+            bee_ids, track_ids, detection_types, detection_indices = zip(*bee_ids_track_ids)
         else:
             bee_ids = [int(object_names[0]), None]
             if object_names[0] is not None:
@@ -250,6 +256,7 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
             )
         if detection_indices[0] is not None:
             annotation_data["detection_idx0"], annotation_data["detection_idx1"] = detection_indices
+            annotation_data["detection_type0"], annotation_data["detection_type1"] = detection_types
         additional_columns.append(annotation_data)
     annotations_df = pd.DataFrame(additional_columns)
     return annotations_df
