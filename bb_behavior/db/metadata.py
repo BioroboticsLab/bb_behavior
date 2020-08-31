@@ -282,7 +282,6 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
             psycopg2.extras.execute_values(cursor, statement,
                                            batch, page_size=200)
             del batch[:]
-            con.commit()
             
         frame_batch = []    
         def commit_frame_batch():
