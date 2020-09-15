@@ -54,7 +54,9 @@ def get_frame_metadata(frames, cursor=None, cursor_is_prepared=False, return_dat
     # And add the frame_ids.
     for fc_id in required_frame_containers.keys():
         cursor.execute("EXECUTE get_frame_container_info (%s)", (fc_id,))
-        video_name = cursor.fetchone()[0]
+        video_name = cursor.fetchall()
+        assert len(video_name) == 1
+        video_name = video_name[0][0]
         cam_id = int(video_name[4])
         required_frame_containers[fc_id] = (cam_id, video_name)
     
@@ -227,7 +229,6 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
     repo = bb_binary.Repository(repository_path)
     
     cam_id_indices = defaultdict(int)
-    next_frame_container_id = 0
     
     if progress is not None:
         if progress == "tqdm":
@@ -245,7 +246,6 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
         framecontainer_tablename = "bb_framecontainer_metadata_" + tablename_suffix
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS {} (
-            id integer NOT NULL,
             fc_id numeric(32,0) NOT NULL,
             fc_path text NOT NULL,
             video_name text NOT NULL
@@ -260,7 +260,7 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
             frame_number bigint NOT NULL,
             cam_id smallint NOT NULL,
             index integer NOT NULL,
-            fc_id integer NOT NULL,
+            fc_id numeric(32,0) NOT NULL,
             "timestamp" double precision NOT NULL,
             "datetime" timestamp with time zone NOT NULL
         );
@@ -268,7 +268,7 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
         """.format(frame_tablename))
         
         framecontainer_statement = """
-                       INSERT INTO {} (id, fc_id, fc_path, video_name) VALUES %s
+                       INSERT INTO {} (fc_id, fc_path, video_name) VALUES %s
                         """.format(framecontainer_tablename)
         frame_statement = """
                        INSERT INTO {} (frame_id, frame_number, cam_id,
@@ -309,7 +309,7 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
 
                 frame_batch.append((
                     frame_id, next_fc_frame_number, cam_id,
-                    frame_index, next_frame_container_id,
+                    frame_index, fc_id,
                     frame_timestamp, frame_datetime))
                 
                 next_fc_frame_number += 1
@@ -320,11 +320,9 @@ def create_frame_metadata_table(repository_path, host, user, password, database=
             cam_id_indices[cam_id] = next_fc_frame_number
             commit_frame_batch()
             
-            framecontainer_batch.append((next_frame_container_id, fc_id, fc_path, video_path))
+            framecontainer_batch.append((fc_id, fc_path, video_path))
             if len(framecontainer_batch) > 100:
                     commit_framecontainer_batch()
-            
-            next_frame_container_id += 1
         
         commit_framecontainer_batch()
     con.close()
