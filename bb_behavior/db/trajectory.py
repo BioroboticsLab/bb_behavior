@@ -74,7 +74,7 @@ class DatabaseCursorContext(object):
         # For metadata.get_frame_metadata
         self._cursor.execute("PREPARE get_frame_container_info AS "
             "SELECT video_name FROM {} "
-            "WHERE id = $1 LIMIT 1".format(base.get_framecontainer_metadata_tablename()))
+            "WHERE fc_id = $1 LIMIT 1".format(base.get_framecontainer_metadata_tablename()))
 
         return self._cursor
 
