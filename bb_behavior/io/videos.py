@@ -122,6 +122,7 @@ class BeesbookVideoManager():
         self.command = "ffmpeg"
         self.codec = "hevc"
         self.output_format = "png"
+        self.scale = 1.0
 
         self.loader_thread_pool = PoolExecutor(max_workers=8)
 
@@ -191,7 +192,8 @@ class BeesbookVideoManager():
             try:
             extract_frames_from_video(self.get_raw_video_path(video_name), target_directory=dirpath,
                 start_frame=start_frame, n_frames=n_frames,
-                    command=self.command, codec=self.codec, output_format=self.output_format)
+                    command=self.command, codec=self.codec, output_format=self.output_format,
+                    scale=self.scale)
             except Exception as e:
                 print("Error at video {}".format(self.get_raw_video_path(video_name),))
                 raise e
