@@ -35,8 +35,7 @@ class DatabaseCursorContext(object):
         if temp_tablespace:
             self._cursor.execute("""SET temp_tablespaces to "{}";""".format(temp_tablespace))
 
-        if base.get_season_identifier() == "berlin_2016": # Needs adjustment for the new metadata structure.
-            self._cursor.execute("PREPARE get_frame_info AS "
+        self._cursor.execute("PREPARE get_frame_info AS "
             "SELECT cam_id, index, fc_id, timestamp FROM {} WHERE frame_id = $1 LIMIT 1".format(base.get_frame_metadata_tablename()))
 
         self._cursor.execute("PREPARE get_all_frame_ids AS "
@@ -508,7 +507,7 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         if max_mm_per_second is not None:
             v[v > max_mm_per_second] = np.nan
         if v.shape[0] > 3:
-        v = scipy.signal.medfilt(v, kernel_size=3)
+            v = scipy.signal.medfilt(v, kernel_size=3)
         
         valid_idx = ~pd.isnull(v)
         timestamp_deltas = timestamp_deltas[valid_idx]
