@@ -386,7 +386,7 @@ def get_track(track_id, frames, use_hive_coords=False, cursor=None, make_consist
 
 def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
                        cursor_is_prepared=False, progress=None,
-                       confidence_threshold=0.1, fixup_velocities=True,
+                       confidence_threshold=0.1, fixup_velocities="auto",
                        additional_columns=set(), max_mm_per_second=None):
     """Retrieves the velocities of a bee over time.
 
@@ -404,7 +404,8 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         confidence_threshold: float
             Retrieves only detections above this threshold.
         fixup_velocities: bool
-            Whether to assume that the timestamps are at 3Hz and smoothing them is okay.
+            Whether to assume that the timestamps are at the FPS given in the base config and smoothing them is okay.
+            If "auto", it's true for the 2016_berlin season and False otherwise.
         additional_columns: iterable(string)
             Iterable of additional column names to query from the database.
         max_mm_per_second: float
@@ -440,6 +441,12 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         from tqdm import tqdm_notebook
         progress_bar = tqdm_notebook
     
+    if fixup_velocities == "auto":
+        if base.get_season_identifier() == "berlin_2016":
+            fixup_velocities = True
+        else:
+            fixup_velocities = False
+
     x_col_index = required_columns.index("x_pos_hive")
     y_col_index = required_columns.index("y_pos_hive")
     cam_id_col_index = required_columns.index("cam_id")
@@ -495,11 +502,12 @@ def get_bee_velocities(bee_id, dt_from, dt_to, cursor=None,
         v = np.sqrt(np.square(x) + np.square(y))
         
         if fixup_velocities:
-            timestamp_deltas = np.round(timestamp_deltas * 3.0) / 3.0
-            timestamp_deltas[timestamp_deltas == 0.0] = 1.0 / 3.0
+            timestamp_deltas = np.round(timestamp_deltas * float(base.get_fps())) / 3.0
+            timestamp_deltas[timestamp_deltas == 0.0] = 1.0 / base.get_fps()
         v = v / timestamp_deltas
         if max_mm_per_second is not None:
             v[v > max_mm_per_second] = np.nan
+        if v.shape[0] > 3:
         v = scipy.signal.medfilt(v, kernel_size=3)
         
         valid_idx = ~pd.isnull(v)
