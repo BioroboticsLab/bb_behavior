@@ -190,8 +190,8 @@ class BeesbookVideoManager():
         assert (n_frames == len(frame_ids))
         with tempfile.TemporaryDirectory(dir=self.cache_path, prefix="vidtmp_") as dirpath:
             try:
-            extract_frames_from_video(self.get_raw_video_path(video_name), target_directory=dirpath,
-                start_frame=start_frame, n_frames=n_frames,
+                extract_frames_from_video(self.get_raw_video_path(video_name), target_directory=dirpath,
+                    start_frame=start_frame, n_frames=n_frames,
                     command=self.command, codec=self.codec, output_format=self.output_format,
                     scale=self.scale)
             except Exception as e:
