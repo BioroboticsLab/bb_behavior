@@ -95,7 +95,7 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, cursor_is_prepared=False):
     return list(sorted((dt, int(f_id), cam_id) for (dt, f_id, cam_id) in results))
 
 def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_threshold=0.1, 
-                              sample_fraction=1.0, additional_columns=set(), cursor=None):
+                              sample_fraction=1.0, additional_columns=list(), cursor=None):
     if cursor is None:
         with base.get_database_connection(application_name="get_detections_for_frames") as db:
             yield from get_detections_for_frames(
