@@ -94,13 +94,17 @@ def get_frames(cam_id, ts_from, ts_to, cursor=None, cursor_is_prepared=False):
     results = cursor.fetchall()
     return list(sorted((dt, int(f_id), cam_id) for (dt, f_id, cam_id) in results))
 
-def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_threshold=0.1, sample_fraction=1.0, cursor=None):
+def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_threshold=0.1, 
+                              sample_fraction=1.0, additional_columns=set(), cursor=None):
     if cursor is None:
         with base.get_database_connection(application_name="get_detections_for_frames") as db:
-            yield from get_detections_for_frames(frames, cursor=db.cursor("detection cursor"),
-                    use_hive_coordinates=use_hive_coordinates,
-                    confidence_threshold=confidence_threshold,
-                    sample_fraction=sample_fraction)
+            yield from get_detections_for_frames(
+                frames, 
+                cursor=db.cursor("detection cursor"),
+                use_hive_coordinates=use_hive_coordinates,
+                confidence_threshold=confidence_threshold,
+                sample_fraction=sample_fraction,
+                additional_columns=additional_columns)
             return
     
     coordinate_string = "x_pos as x, y_pos as y, orientation "
@@ -109,11 +113,14 @@ def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_thre
     sample_string = ""
     if sample_fraction is not None and sample_fraction < 1.0:
         sample_string = "TABLESAMPLE BERNOULLI ({}) ".format(sample_fraction * 100)
-    cursor.execute("SELECT timestamp, frame_id, " + coordinate_string + ", track_id, bee_id "
-            "FROM  " + base.get_detections_tablename() + " " + sample_string + \
-            "WHERE frame_id = ANY(%s) "
-            "AND bee_id_confidence > %s "
-            "ORDER BY timestamp ASC", (list(map(int, frames)), confidence_threshold))
+    columns_string = "timestamp, frame_id, " + coordinate_string + ", track_id, bee_id"
+    for column in additional_columns:
+        columns_string += f', {column}'
+    cursor.execute(f"""SELECT {columns_string}
+            FROM {base.get_detections_tablename()} {sample_string}
+            WHERE frame_id = ANY(%s)
+            AND bee_id_confidence > %s
+            ORDER BY timestamp ASC""", (list(map(int, frames)), confidence_threshold))
 
     yield from cursor
 
@@ -131,6 +138,8 @@ def get_detections_dataframe_for_frames(frames, **kwargs):
     """    
     detections = list(get_detections_for_frames(frames, **kwargs))
     columns = ['timestamp', 'frame_id', 'x_pos', 'y_pos', 'orientation', 'track_id', 'bee_id']
+    if 'additional_columns' in kwargs:
+        columns += kwargs['additional_columns']
     detections_df = pandas.DataFrame(detections, columns=columns)
 
     return detections_df
