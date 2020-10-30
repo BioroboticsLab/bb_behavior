@@ -2,6 +2,7 @@ import datetime, pytz
 import math
 import numba
 import numpy as np
+import pandas
 
 from . import base
 
@@ -115,6 +116,25 @@ def get_detections_for_frames(frames, use_hive_coordinates=True, confidence_thre
             "ORDER BY timestamp ASC", (list(map(int, frames)), confidence_threshold))
 
     yield from cursor
+
+
+def get_detections_dataframe_for_frames(frames, **kwargs):
+    """Thin wrapper around get_detections_for_frames. Keyword arguments are passed through.
+
+    Args:
+        frames: list(Decimal)
+            frame_ids for which the detections are fetched.
+
+    Returns:
+        pandas.DataFrame
+            Detections from given frames.
+    """    
+    detections = list(get_detections_for_frames(frames, **kwargs))
+    columns = ['timestamp', 'frame_id', 'x_pos', 'y_pos', 'orientation', 'track_id', 'bee_id']
+    detections_df = pandas.DataFrame(detections, columns=columns)
+
+    return detections_df
+
 
 def get_track_ids(frames, cursor=None):
     """Retrieves all unique track IDs from the database that occur in a given set of frame_ids.
