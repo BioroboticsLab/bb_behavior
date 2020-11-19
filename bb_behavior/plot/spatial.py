@@ -161,6 +161,8 @@ def plot_binned_heatmap(xy, values=None, bin_width=None, n_bins=50.0, aggfunc=No
                   contour_levels=None, heatmap=None):
     import seaborn as sns
     import skimage
+    import skimage.transform
+    import skimage.filters
     import matplotlib.pyplot as plt
     import pandas
     
