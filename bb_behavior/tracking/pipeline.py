@@ -350,6 +350,8 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
     if len(video_dataframe) > 0:
         video_dataframe = pd.concat(video_dataframe)
         video_dataframe.sort_values("frameIdx", inplace=True)
+        # Enfore frame ID datatype to be unsigned which may have gotten lost when concatenating the data frames.
+        video_dataframe.frameId = video_dataframe.frameId.astype(np.uint64)
     else:
         video_dataframe = None
     
