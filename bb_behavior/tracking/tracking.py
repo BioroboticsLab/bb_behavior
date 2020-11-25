@@ -30,6 +30,7 @@ from ..plot.misc import draw_ferwar_id_on_axis
 from collections import defaultdict, namedtuple
 import datetime, pytz
 import dill
+import joblib
 import math
 import numpy as np
 import pandas as pd
@@ -57,24 +58,30 @@ def make_scaling_homography_fn(pixels_to_millimeter_ratio):
     return scaling_homography_fn
 
 def get_default_tracker_settings(detection_model_path, tracklet_model_path,
-        detection_classification_threshold=0.25, tracklet_classification_threshold=0.8):
+        detection_classification_threshold=0.6, tracklet_classification_threshold=0.5):
 
-    detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
-    tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
+    #detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
+    #tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
+
+    with open(detection_model_path, "rb") as f:
+        detection_model = joblib.load(f)
+    with open(tracklet_model_path, "rb") as f:
+        tracklet_model = joblib.load(f)
 
     tracklet_kwargs = dict(
-        max_distance_per_second = 20.0,
-        n_features=17,
+        max_distance_per_second = 30.0,
+        n_features=18,
         detection_feature_fn=bb_tracking.features.get_detection_features,
-        detection_cost_fn=detection_model.predict_cost,
+        detection_cost_fn=lambda f: 1 - detection_model.predict_proba(f)[:, 1],
         max_cost=1.0 - detection_classification_threshold
         )
 
     track_kwargs = dict(
         max_distance_per_second = 20.0,
-        n_features=10,
+        max_seconds_gap=4.0,
+        n_features=14,
         tracklet_feature_fn=bb_tracking.features.get_track_features,
-        tracklet_cost_fn=tracklet_model.predict_cost,
+        tracklet_cost_fn=lambda f: 1 - tracklet_model.predict_proba(f)[:, 1],
         max_cost=1.0 - tracklet_classification_threshold
         )
     return dict(tracklet_kwargs=tracklet_kwargs, track_kwargs=track_kwargs)
