@@ -166,8 +166,13 @@ class DataReader(object):
     def load_dataframe(self, path, **kwargs):
         df = pandas.read_hdf(path, key="df")
         return DataReader(dataframe=df, **kwargs)
-    
-    def save_features(self, path):
+
+    @classmethod
+    def load_dataframe(self, path, **kwargs):
+        df = pandas.read_hdf(path, key="df")
+        return DataReader(dataframe=df, **kwargs)
+
+    def save(self, path):
         import h5py
         h5f = h5py.File(path, 'w')
         h5f.create_dataset('X', data=self.X)
@@ -175,22 +180,39 @@ class DataReader(object):
         if self.groups is not None:
             h5f.create_dataset('groups', data=self.groups)
         h5f.create_dataset('features', shape=(len(self._features), 1), dtype="S20", data=[f.encode("ascii", "ignore") for f in self._features])
+        # Save original data along side the features.
+        h5f.create_dataset('valid_sample_indices', data=self._valid_sample_indices)
         h5f.close()
+        
+        self.samples.to_hdf(path, "samples")
 
     @classmethod
-    def load_features(self, path):
+    def load(self, path):
         datareader = DataReader(feature_procs=None)
 
         import h5py
         h5f = h5py.File(path,'r')
         datareader._X = h5f['X'][:]
         datareader._Y = h5f['Y'][:]
-        datareader._groups = h5f["groups"][:]
+        try:
+            datareader._groups = h5f["groups"][:]
+        except:
+            pass
+        try:
+            self._valid_sample_indices = h5f['valid_sample_indices'][:]
+        except:
+            pass
         datareader._features = tuple(f[0].decode("utf-8") for f in list(h5f["features"][:]))
         datareader._has_loaded_features = True
+        h5f.close()
+
+        try:
+            self._samples = pandas.read_hdf(path, "samples")
+        except:
+            print("Original samples were not stored.")
 
         return datareader
-    
+
     def has_loaded_features(self):
         return self._has_loaded_features
 
