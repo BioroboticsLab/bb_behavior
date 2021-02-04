@@ -465,12 +465,17 @@ class DataReader(object):
             return self._X.shape[1]
         return len(self._features) * len(self._bee_id_columns)
 
-    def create_train_test_split(self, test_size=0.2):
+    def create_train_test_split(self, test_size=0.2, predefined_train_groups=None):
         import sklearn.model_selection
 
         idx = None
         if self.groups is not None:
-            idx = next(sklearn.model_selection.GroupShuffleSplit(n_splits=1, test_size=test_size).split(self.X, y=self.Y, groups=self.groups))
+            if predefined_train_groups is not None:
+                idx = [None, None]
+                idx[0] = np.isin(self.groups, predefined_train_groups)
+                idx[1] = ~idx[0]
+            else:
+                idx = next(sklearn.model_selection.GroupShuffleSplit(n_splits=1, test_size=test_size).split(self.X, y=self.Y, groups=self.groups))
         else:
             idx = next(sklearn.model_selection.StratifiedShuffleSplit(n_splits=1, test_size=test_size).split(self.X, y=self.Y))
         self._train_X, self._train_Y, self._test_X, self._test_Y = \
