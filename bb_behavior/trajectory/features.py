@@ -259,10 +259,12 @@ class DataReader(object):
                                     interpolate=True, verbose=False,
                                     cursor=thread_context, cursor_is_prepared=True,
                                     use_hive_coords=use_hive_coords,
-                                    detections=detections)
+                                    detections=detections, confidence_threshold=0.5)
         if traj is None:
             return None
         traj, mask = traj
+        if traj is None:
+            return None
 
         if n_frames is None:
             if frames is not None:
@@ -271,7 +273,10 @@ class DataReader(object):
                 n_frames = len(detections)
         if n_frames is not None and np.sum(mask) < n_frames // 2:
             return None
-        assert np.sum(np.isnan(traj)) == 0 or np.sum(np.isnan(traj)) == traj.size
+        if not np.sum(np.isnan(traj)) == 0 or np.sum(np.isnan(traj)) == traj.size:
+            print(traj.shape, traj.size, np.sum(np.isnan(traj)), flush=True)
+            print(traj)
+            assert False
         
         return np.hstack((traj, mask[:, np.newaxis]))
 
