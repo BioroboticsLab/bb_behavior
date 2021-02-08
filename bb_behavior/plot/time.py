@@ -130,19 +130,19 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
     df = list(itertools.chain(*list(s for s in last_x_for_y.values() if s is not None)))
     if len(df) == 0:
         return None
-        
+
+    if colormap is not None:
+        import matplotlib.colors
+        converter = matplotlib.colors.ColorConverter()
+        for key, val in colormap.items():
+            colormap[key] = converter.to_rgb(val) 
+            
     if backend == "plotly":
         import plotly.figure_factory as ff
         import plotly.offline
         if filename is None:
             plotly.offline.init_notebook_mode()
         
-        if colormap is not None:
-            import matplotlib.colors
-            converter = matplotlib.colors.ColorConverter()
-            for key, val in colormap.items():
-                colormap[key] = converter.to_rgb(val)
-
         fig = ff.create_gantt(df, colors=colormap, group_tasks=True, index_col="Resource", title=title)
         fig = plotly.offline.plot(fig, filename=filename, image_width=1024, image_height=600)
         if filename is None:
