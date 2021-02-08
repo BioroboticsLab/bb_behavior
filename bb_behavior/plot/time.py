@@ -1,4 +1,5 @@
 import datetime
+import numpy as np
 import pandas as pd
 import itertools
 
@@ -135,15 +136,19 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
         import matplotlib.colors
         converter = matplotlib.colors.ColorConverter()
         for key, val in colormap.items():
-            colormap[key] = converter.to_rgb(val) 
-            
+            color = converter.to_rgba(val, alpha=1.0)
+            if backend == "bokeh":
+                from bokeh.colors import RGB
+                color = RGB(*(np.array(color) * 255.0))
+            colormap[key] = color
+
     if backend == "plotly":
         import plotly.figure_factory as ff
         import plotly.offline
         if filename is None:
             plotly.offline.init_notebook_mode()
         
-        fig = ff.create_gantt(df, colors=colormap, group_tasks=True, index_col="Resource", title=title)
+        fig = ff.create_gantt(df, colors=colormap, group_tasks=True, index_col="Resource", title=title, show_colorbar=True)
         fig = plotly.offline.plot(fig, filename=filename, image_width=1024, image_height=600)
         if filename is None:
             from IPython.display import display
@@ -153,12 +158,13 @@ def plot_timeline(iterable, min_gap_size=datetime.timedelta(seconds=1), min_even
         bokeh.io.output_file(filename)
         plot_data_df = pd.DataFrame(df)
         plot_data_df["color"] = plot_data_df.Resource.apply(lambda x: colormap[x] if colormap else "blue")
-        source = bokeh.models.ColumnDataSource(plot_data_df[["Task", "dt_start", "dt_end",
+        source = bokeh.models.ColumnDataSource(plot_data_df[["Task", "dt_start", "dt_end", "Resource",
                                                             "Start", "Finish", "color", "description"]])
 
         p = bokeh.plotting.figure(y_range=plot_data_df.Task.unique(), plot_width=1024, plot_height=600,
                 title=title, x_axis_type='datetime')
-        p.hbar(y="Task", left='dt_start', right='dt_end', fill_color="color", line_color=None, height=0.4, source=source)
+        p.hbar(y="Task", left='dt_start', right='dt_end', fill_color="color", legend_group="Resource",
+               line_color=None, height=0.8, source=source)
         p.add_tools(bokeh.models.tools.HoverTool(tooltips=[("Begin", "@Start"),
                                                             ("End", "@Finish"),
                                                             ("Description", "@description")]))
