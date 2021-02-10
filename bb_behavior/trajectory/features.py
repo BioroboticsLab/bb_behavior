@@ -84,35 +84,6 @@ class FeatureTransform(object):
 
 class DataReader(object):
 
-    _dataframe = None
-    _sample_count = None
-    _from_timestamp = None
-    _to_timestamp = None
-    _bee_ids = None
-
-    _frame_margin = None
-    _n_threads = None
-
-    _feature_procs = None
-
-    # Internal states.
-    _bee_id_columns = None
-
-    _samples = None
-    _valid_sample_indices = None
-
-    _dataset = None
-    _groups = None
-
-    _has_loaded_features = False
-    _X = None
-    _Y = None
-    _train_X, _train_Y = None, None
-    _test_X, _test_Y = None, None
-    _train_groups, _test_groups = None, None
-
-    _verbose = False
-
     def __init__(self,
                     dataframe=None, sample_count=None,
                     from_timestamp=None, to_timestamp=None, bee_ids=None, use_hive_coords=False,
@@ -137,6 +108,18 @@ class DataReader(object):
         self._chunk_frame_id_queries = chunk_frame_id_queries
         self._verbose = verbose
         self._Y_dtype = Y_dtype
+
+        self._bee_id_columns = None
+        self._samples = None
+        self._valid_sample_indices = None
+        self._dataset = None
+        self._groups = None
+        self._has_loaded_features = False
+        self._X = None
+        self._Y = None
+        self._train_X, self._train_Y = None, None
+        self._test_X, self._test_Y = None, None
+        self._train_groups, self._test_groups = None, None
 
         if progress == "tqdm_notebook":
             import tqdm
@@ -199,7 +182,7 @@ class DataReader(object):
         except:
             pass
         try:
-            self._valid_sample_indices = h5f['valid_sample_indices'][:]
+            datareader._valid_sample_indices = h5f['valid_sample_indices'][:]
         except:
             pass
         datareader._features = tuple(f[0].decode("utf-8") for f in list(h5f["features"][:]))
@@ -207,7 +190,7 @@ class DataReader(object):
         h5f.close()
 
         try:
-            self._samples = pandas.read_hdf(path, "samples")
+            datareader._samples = pandas.read_hdf(path, "samples")
         except:
             print("Original samples were not stored.")
 
@@ -508,6 +491,10 @@ class DataReader(object):
         self._train_X, self._train_Y, self._test_X, self._test_Y = \
             self.X[idx[0]], self.Y[idx[0]],\
             self.X[idx[1]], self.Y[idx[1]]
+
+        self._train_indices = np.where(idx[0])[0]
+        self._test_indices = np.where(idx[1])[0]
+
         if self._groups is not None:
             self._train_groups = self._groups[idx[0]]
             self._test_groups = self._groups[idx[1]]
