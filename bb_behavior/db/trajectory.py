@@ -46,11 +46,11 @@ class DatabaseCursorContext(object):
 
         self._cursor.execute("PREPARE get_bee_detections AS "
            "SELECT timestamp, frame_id, x_pos AS x, y_pos AS y, orientation, track_id FROM {} "
-           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
+           "WHERE frame_id = ANY($1) AND bee_id = $2 AND bee_id_confidence >= $3 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
         
         self._cursor.execute("PREPARE get_bee_detections_hive_coords AS "
            "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM {} "
-           "WHERE frame_id = ANY($1) AND bee_id = $2 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
+           "WHERE frame_id = ANY($1) AND bee_id = $2 AND bee_id_confidence >= $3 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
 
         self._cursor.execute("PREPARE find_interaction_candidates AS "
             "SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM {} "
@@ -152,7 +152,8 @@ def get_consistent_track_from_detections(frames, detections, verbose=False):
 
 def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
                         use_hive_coords=False,
-                        cursor=None, cursor_is_prepared=False, make_consistent=True, **kwargs):
+                        cursor=None, cursor_is_prepared=False, make_consistent=True,
+                        confidence_threshold=0.0, **kwargs):
     """Fetches all detections for a bee between some time points or around a center frame.
         The results include "None" when no detection was found for a time step.
         
@@ -165,6 +166,7 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
             cursor: optional database cursor to work on
             make_consistent: bool
                 Whether the frames are a consecutive track. Filters out duplicate detections per frame and orders the return values.
+            confidence_threshold: minimum bee_id_confidence to allow
         Returns:
             List containing tuples of (timestamp, frame_id, x_pos, y_pos, orientation, track_id) sorted by timestamp; can contain None
     """
@@ -189,11 +191,11 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
         coords_string = "x_pos AS x, y_pos AS y, orientation"
         if use_hive_coords:
             coords_string = "x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation"
-        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM {} WHERE frame_id=ANY(%s) AND bee_id = %s ORDER BY timestamp ASC".format(base.get_detections_tablename()),
-                        (frame_ids, bee_id))
+        cursor.execute("SELECT timestamp, frame_id, " + coords_string + ", track_id FROM {} WHERE frame_id=ANY(%s) AND bee_id = %s AND bee_id_confidence >= %s ORDER BY timestamp ASC".format(base.get_detections_tablename()),
+                        (frame_ids, bee_id, confidence_threshold))
     else:
         prepared_statement_name = "get_bee_detections" if not use_hive_coords else "get_bee_detections_hive_coords"
-        cursor.execute("EXECUTE " + prepared_statement_name + " (%s, %s)", (frame_ids, bee_id))
+        cursor.execute("EXECUTE " + prepared_statement_name + " (%s, %s, %s)", (frame_ids, bee_id, confidence_threshold))
     detections = cursor.fetchall()
     if make_consistent:
         return get_consistent_track_from_detections(frames, detections, verbose=verbose)
@@ -308,6 +310,9 @@ def get_interpolated_trajectory(bee_id, frame_id=None, frames=None, interpolate=
                                 mask is of shape (N,) containing 1.0 for original and 0.0 for interpolated values.
     """
     trajectory = get_bee_trajectory(bee_id, frame_id=frame_id, frames=frames, detections=detections, **kwargs)
+    if trajectory.shape[0] == 0:
+        return None, None
+
     mask = None
     if interpolate:
         mask = interpolate_trajectory(trajectory)
