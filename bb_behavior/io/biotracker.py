@@ -75,7 +75,11 @@ def load_tracks(tracks_filename, using_bee_ids=True):
         if not key.startswith("Trajectory_"):
             continue
         trajectory = tracking_data[key]
+        
         available_frame_indices = list(sorted([int(e.split("_")[1]) for e in trajectory.keys() if e.startswith("Element_")]))
+        if len(trajectory) == 0 or len(available_frame_indices) == 0:
+            print("Empty trajectory for key {} (traj. keys: {}).".format(key, ", ".join(trajectory.keys())))
+            continue
         highest_valid_frame_number = available_frame_indices[-1]
         
         trajectory_list = []
@@ -180,8 +184,13 @@ def load_annotated_bee_video(video_filename=None, tracks_filename=None, annotati
         if detection_idx is None:
             return None, None
         cursor.execute("EXECUTE get_bee_id_track_id (%s, %s, %s)", (frame_id, detection_type, detection_idx))
-        bee_id, track_id = cursor.fetchone()[0:2]
-        return bee_id, track_id
+        results = cursor.fetchone()
+        if results:
+            bee_id, track_id = results[0:2]
+            return bee_id, track_id
+        else:
+            print("Could not find track ID for frame, type, idx ({}, {}, {}).".format(frame_id, detection_type, detection_idx))
+            return None, None
 
     has_detection_index_instead_of_id = object_name == "detection_idx"
 
