@@ -261,7 +261,7 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
     
     cam_id, f_index, frame_container_id, timestamp = None, None, None, None
     if not cursor_is_prepared:
-        cursor.execute("SELECT cam_id, index, fc_id, timestamp FROM {} WHERE frame_id = %s LIMIT 1".format(base.get_frame_medatata_tablename()), (frame_id,))
+        cursor.execute("SELECT cam_id, index, fc_id, timestamp FROM {} WHERE frame_id = %s LIMIT 1".format(base.get_frame_metadata_tablename()), (frame_id,))
     else:
         cursor.execute("EXECUTE get_frame_info (%s)", (frame_id,))
 
