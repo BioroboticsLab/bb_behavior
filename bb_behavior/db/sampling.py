@@ -297,3 +297,53 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
         neighbour_frames = left + right
 
     return neighbour_frames
+
+def get_detections_for_location_between(cam_id, ts_from, ts_to, xlim, ylim, confidence_threshold=0.5, cursor=None, cursor_is_prepared=False):
+    from contextlib import closing
+    from collections import defaultdict
+    
+    if cursor is None:
+        with closing(base.get_database_connection("get_detections_for_location_between")) as db:
+            cursor = db.cursor()
+            return get_detections_for_location_between(cam_id, ts_from, ts_to, xlim, ylim, confidence_threshold, cursor=cursor)
+    
+    sql_statement = "EXECUTE get_detections_for_location_between (%s, %s, %s, %s, %s, %s, %s, %s)"
+
+    if not cursor_is_prepared:
+        sql_statement = """
+            SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
+            track_id,
+            x_pos, y_pos, orientation FROM {} WHERE
+            cam_id = %s AND timestamp >= %s AND timestamp < %s AND
+            x_pos_hive >= %s AND x_pos_hive < %s AND
+            y_pos_hive >= %s AND y_pos_hive < %s AND
+            bee_id_confidence > %s""".format(base.get_detections_tablename())
+        
+    cursor.execute(sql_statement,
+                   (cam_id, ts_from, ts_to, xlim[0], xlim[1], ylim[0], ylim[1], confidence_threshold))
+    return cursor.fetchall()
+
+def get_detections_for_location_in_frame(frame_id, xlim, ylim, confidence_threshold=0.5, cursor=None, cursor_is_prepared=False):
+    from contextlib import closing
+    from collections import defaultdict
+    
+    if cursor is None:
+        with closing(base.get_database_connection("get_detections_for_location_in_frame")) as db:
+            cursor = db.cursor()
+            return get_detections_for_location_in_frame(frame_id, xlim, ylim, confidence_threshold, cursor=cursor)
+    
+    sql_statement = "EXECUTE get_detections_for_location_in_frame (%s, %s, %s, %s, %s, %s)"
+
+    if not cursor_is_prepared:
+        sql_statement = """
+            SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
+            track_id,
+            x_pos, y_pos, orientation FROM {} WHERE
+            frame_id = %s AND
+            x_pos_hive >= %s AND x_pos_hive < %s AND
+            y_pos_hive >= %s AND y_pos_hive < %s AND
+            bee_id_confidence > %s""".format(base.get_detections_tablename())
+        
+    cursor.execute(sql_statement,
+                   (frame_id, xlim[0], xlim[1], ylim[0], ylim[1], confidence_threshold))
+    return cursor.fetchall()

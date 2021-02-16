@@ -52,6 +52,24 @@ class DatabaseCursorContext(object):
            "SELECT timestamp, frame_id, x_pos_hive AS x, y_pos_hive AS y, orientation_hive as orientation, track_id FROM {} "
            "WHERE frame_id = ANY($1) AND bee_id = $2 AND bee_id_confidence >= $3 ORDER BY timestamp ASC".format(base.get_detections_tablename()))
 
+        self._cursor.execute("""PREPARE get_detections_for_location_between AS
+            SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
+            track_id,
+            x_pos, y_pos, orientation FROM {} WHERE
+            cam_id = $1 AND timestamp >= $2 AND timestamp < $3 AND
+            x_pos_hive >= $4 AND x_pos_hive < $5 AND
+            y_pos_hive >= $6 AND y_pos_hive < $7 AND
+            bee_id_confidence > $8""".format(base.get_detections_tablename()))
+        
+        self._cursor.execute("""PREPARE get_detections_for_location_in_frame AS
+            SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
+            track_id,
+            x_pos, y_pos, orientation FROM {} WHERE
+            frame_id = $1 AND
+            x_pos_hive >= $2 AND x_pos_hive < $3 AND
+            y_pos_hive >= $4 AND y_pos_hive < $5 AND
+            bee_id_confidence > $6""".format(base.get_detections_tablename()))
+
         self._cursor.execute("PREPARE find_interaction_candidates AS "
             "SELECT x_pos_hive, y_pos_hive, orientation_hive, bee_id, detection_idx, cam_id FROM {} "
             "WHERE frame_id = $1 AND bee_id_confidence >= $2".format(base.get_detections_tablename()))
