@@ -309,3 +309,5 @@ class BeesbookVideoManager():
         for frame_id in frame_ids:
             assert self.is_frame_cached(frame_id)
 
+        images = list(self.loader_thread_pool.map(self.get_frame, all_frame_ids))
+        return images
