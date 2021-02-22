@@ -184,7 +184,8 @@ def track_detections_dataframe(dataframe_or_generator,
                 continue
             if df.shape[0] == 0:
                 continue
-            dt = datetime.datetime.fromtimestamp(df.timestamp.values[0], tz=pytz.UTC)
+            dt = df.timestamp.values[0]
+            assert isinstance(dt, (np.floating, float))
             homography = homography_fn(cam_id, dt)
             yield from iterate_dataframe_as_detections(df, homography)
     
@@ -209,7 +210,7 @@ def track_detections_dataframe(dataframe_or_generator,
         return None
     return pd.DataFrame(tracks_dataframe)
 
-def plot_tracks(tracks, fig=None, use_individual_id_for_color=True, use_pixel_coordinates=False):
+def plot_tracks(tracks, fig=None, use_individual_id_for_color=True, use_pixel_coordinates=False, draw_labels=True, draw_lines=True):
     import matplotlib.cm
     import matplotlib.pyplot as plt
     
@@ -236,13 +237,15 @@ def plot_tracks(tracks, fig=None, use_individual_id_for_color=True, use_pixel_co
         color = cm(colors[color_idx])
         bee_id = int(df.bee_id.values[0])
         plt.scatter(df[x_coord], df[y_coord], c=np.array([color]), alpha=0.2)
-        plt.plot(df[x_coord].values, df[y_coord].values, "k--")
-        plt.text(float(df[x_coord].values[0]), float(df[y_coord].values[0]), "#{:02d}({})".format(track_idx, bee_id),
+        if draw_lines:
+            plt.plot(df[x_coord].values, df[y_coord].values, "k--")
+        if draw_labels:
+            plt.text(float(df[x_coord].values[0]), float(df[y_coord].values[0]), "#{:02d}({})".format(track_idx, bee_id),
                  color=color)
     if new_figure:
         plt.show()
 
-def display_tracking_results(tracks, path=None, image=None, fig_width=12):
+def display_tracking_results(tracks, path=None, image=None, fig_width=12, track_plot_kws=dict()):
     import matplotlib.pyplot as plt
 
     track_count = len(tracks.track_id.unique())
@@ -262,7 +265,7 @@ def display_tracking_results(tracks, path=None, image=None, fig_width=12):
     fig = plt.figure(figsize=(fig_width, fig_width))
     if image is not None:
         plt.imshow(image, cmap="gray")
-    plot_tracks(tracks, fig=fig, use_pixel_coordinates=True)
+    plot_tracks(tracks, fig=fig, use_pixel_coordinates=True, **track_plot_kws)
     plt.show()
     
     print("Detection/track statistics:")
