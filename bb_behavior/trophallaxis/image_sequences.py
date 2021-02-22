@@ -68,6 +68,9 @@ def get_whole_frame_image_sequences(video_manager, frame_ids_fcs, n_frames_befor
                 yield video_manager.get_frames(frame_ids, cursor=prepared_cursor, verbose=verbose), neighbour_frames
             except Exception as e:
                 print("VideoManager: error getting frames for container {}.".format(fc_id))
+                for frame_id in frame_ids:
+                    if "{}.bmp".format(frame_id) in video_manager.deleted_images:
+                        print("Image was already removed from cache ({})".format(frame_id))
                 print(str(e))
                 yield None, None
 
@@ -218,7 +221,7 @@ def get_all_crops_for_frame(frame_id, df, images, neighbour_frames, cursor=None,
             local_traj0, local_traj1, cropped_images = get_crops_for_bees(traj0, traj1, images)
             
             all_results.append((dict(
-                    frame_id=frame_id, event_id=event_id,
+                    frame_id=int(frame_id), event_id=event_id,
                     bee_id0=bee_id0, bee_id1=bee_id1, label=label,
                     local_traj0=local_traj0, local_traj1=local_traj1,
                     traj0=list(map(tuple, traj0.astype(float))), traj1=list(map(tuple, traj1.astype(float))),
@@ -346,6 +349,9 @@ def get_available_events(path, with_event_metadata=False, with_frame_metadata=Fa
     def load_metadata(zf, filename):
         with zf.open(filename) as file:
             meta = json.load(file)
+            if meta["bee_id0"] >= meta["bee_id1"]:
+                from IPython.display import display
+                display(meta)
             assert(meta["bee_id0"] < meta["bee_id1"])
             return meta
         
@@ -386,12 +392,12 @@ def get_available_events(path, with_event_metadata=False, with_frame_metadata=Fa
 
         if with_frame_metadata:
             from ..db.metadata import get_frame_metadata
-            metadata = get_frame_metadata(df.frame_id.values)
+            metadata = get_frame_metadata(df.frame_id.unique())
             df = pd.merge(df, metadata, how="left", left_on="frame_id", right_on="frame_id")
     return df
 
 class TrophallaxisImageDataset(torch.utils.data.Dataset):
-    def __init__(self, path, extracted_path=None, data=None, n_channels=5):
+    def __init__(self, path, extracted_path=None, data=None, n_channels=5, use_augmentations=True):
         self.path = path
         self.n_channels = n_channels
         
@@ -402,22 +408,24 @@ class TrophallaxisImageDataset(torch.utils.data.Dataset):
         
         self.extracted_path = extracted_path
         
-        from imgaug import augmenters as iaa
-        self.augmentations = iaa.Sequential([
-            # Strengthen or weaken the contrast in each image.
-            iaa.ContrastNormalization((0.9, 1.1)),
-            # Make some images brighter and some darker.
-            iaa.Multiply((0.9, 1.1)),
-            # Apply affine transformations to each image.
-            # Scale/zoom them, translate/move them, rotate them and shear them.
-            iaa.Affine(
-                scale={"x": (0.98, 1.02), "y": (0.98, 1.02)},
-                translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)},
-                rotate=(-3, 3),
-                shear=(-2, 2)
-            )
-        ], random_order=True)
-        #self.augmentations = None
+        if use_augmentations:
+            from imgaug import augmenters as iaa
+            self.augmentations = iaa.Sequential([
+                # Strengthen or weaken the contrast in each image.
+                iaa.ContrastNormalization((0.8, 1.2)),
+                # Make some images brighter and some darker.
+                iaa.Multiply((0.8, 1.2)),
+                # Apply affine transformations to each image.
+                # Scale/zoom them, translate/move them, rotate them and shear them.
+                iaa.Affine(
+                    scale={"x": (0.96, 1.04), "y": (0.96, 1.04)},
+                    rotate=(-5, 5),
+                    shear=(-2, 2),
+                    translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)}
+                )
+            ], random_order=True)
+        else:
+            self.augmentations = None
         
     def __len__(self):
         return self.data.shape[0]
@@ -450,8 +458,19 @@ class TrophallaxisImageDataset(torch.utils.data.Dataset):
         if self.augmentations is not None:
             deterministic = self.augmentations.to_deterministic()
             #print(images[0].dtype, images[0].shape, images[0].min(), images[0].max())
-            #images = [deterministic.augment_image(img) for img in images]
+            images = [deterministic.augment_image(img) for img in images]
             #print(images[0].dtype, images[0].shape, images[0].min(), images[0].max())
+
+        if False:#label:
+            from IPython.display import display
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(1, len(images), figsize=(20, 5))
+            for ax, im in zip(ax, images):
+                ax.imshow(im, cmap="gray")
+            display(fig)
+            plt.show()
+            display(self.data.iloc[idx, :])
+        
         images = np.stack(images).astype(np.float32)
         return images, float(label)
     
