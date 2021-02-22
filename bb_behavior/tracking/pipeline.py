@@ -105,9 +105,9 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             If given, the tag detection will be multithreaded with one pipeline object per threads.
         tag_pixel_diameter: float
             Diameter of the outer border of a flat BeesBook tag in the image (in pixels).
-        timestamps: list(float)
+        timestamps: list(float or datetime.datetime)
             List of timestamps of a length that corresponds to the number of frames in the video.
-            Can be None.
+            Can be None. Datetime objects must be UTC localized.
         start_timestamps: float
             Used with timestamps=None. Timestamp of first frame of the video. Defaults to 0.
         fps: float
@@ -154,7 +154,13 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                     i += 1.0
             yield from gen()
         timestamps = generate_timestamps(start_timestamp or 0.0)
-        
+    else:
+        timestamps = list(timestamps) # Evaluate generators.
+        ts = timestamps[0]
+        if not isinstance(ts, (np.floating, float)):
+            if not ts.tzinfo or int(ts.utcoffset().total_seconds()) != 0:
+                raise ValueError("timestamps argument must be iterable of floats or UTC datetime objects with timezones.")
+            timestamps = [t.timestamp() for t in timestamps]
     import skimage.transform
     import pipeline as bb_pipeline
         
