@@ -4,9 +4,9 @@ from collections import defaultdict
 import numpy as np
 import pandas
 from numba import jit
+import scipy.signal
 import copy
 
-@jit
 def feature_normalize(trajectories, downscale_by=1000.0):
     traj0 = trajectories[0] # x, y, orientation, mask; (1, 4, N)
     center_index = traj0.shape[2] // 2
@@ -23,20 +23,27 @@ def feature_normalize(trajectories, downscale_by=1000.0):
 
         traj[0, 2, :] = traj[0, 2, :] - mid_r
 
-@jit
 def feature_angle_to_geometric(trajectories):
     for idx, traj in enumerate(trajectories):
         cos = np.cos(traj[:, 2:3, :])
         traj[0, 2, :] = np.sin(traj[0, 2, :])
         trajectories[idx] = np.concatenate((traj[:, :3, :], cos, traj[:, 3:4, :]), axis=1)
 
-@jit
 def feature_egomotion(trajectories):
     for idx, traj in enumerate(trajectories):
         traj[0, :4, :-1] = np.diff(traj[0, :4, :], axis=1)
-        trajectories[idx] = traj[:, :, :-1]
+        traj = traj[:, :, :-1]
+        velocity = np.linalg.norm(traj[0, :2, :], axis=0)
+        velocity = scipy.signal.medfilt(velocity, kernel_size=3)
+        movement_direction = np.arctan2(traj[0, 1, :], traj[0, 0, :])
+        forward_direction = np.arctan2(traj[0, 2, :], traj[0, 3, :])
+        turn_direction = movement_direction - forward_direction
+        traj[0, 0, :] = velocity
+        traj[0, 1, :] = np.sin(turn_direction)
+        cos = np.cos(turn_direction)[None, None, :]
 
-@jit
+        trajectories[idx] = np.concatenate((traj[:, :2, :], cos, traj[:, 2:5, :]), axis=1)
+
 def trajectories_to_features(trajectories, feature_transformer):
     for ft in feature_transformer:
         ft(trajectories)
@@ -45,9 +52,10 @@ def trajectories_to_features(trajectories, feature_transformer):
     n_trajectories = len(trajectories)
     trajectories = np.concatenate(trajectories, axis=1)
     
-    features = feature_transformer[-1].get_output()
-    if (trajectories.shape[1] != n_trajectories * len(features)):
-        raise ValueError("Feature transformers declared {}x{} output features ({}) but produced {}.".format(n_trajectories, len(features), features, trajectories.shape[1]))
+    if feature_transformer:
+        features = feature_transformer[-1].get_output()
+        if (trajectories.shape[1] != n_trajectories * len(features)):
+            raise ValueError("Feature transformers declared {}x{} output features ({}) but produced {}.".format(n_trajectories, len(features), features, trajectories.shape[1]))
     return trajectories
 
 class FeatureTransform(object):
@@ -74,7 +82,7 @@ class FeatureTransform(object):
         return FeatureTransform(fun=feature_angle_to_geometric, input=("x", "y", "r", "mask"), output=("x", "y", "r_sin", "r_cos", "mask"))
     @staticmethod
     def Egomotion():
-        return FeatureTransform(fun=feature_egomotion, input=("x", "y", "r_sin", "r_cos", "mask"))
+        return FeatureTransform(fun=feature_egomotion, input=("x", "y", "r_sin", "r_cos", "mask"), output=("vel", "x", "y", "r_sin", "r_cos", "mask"))
     def get_output(self):
         return self._output
     def __call__(self, x):
