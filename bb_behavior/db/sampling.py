@@ -313,7 +313,7 @@ def get_detections_for_location_between(cam_id, ts_from, ts_to, xlim, ylim, conf
         sql_statement = """
             SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
             track_id,
-            x_pos, y_pos, orientation FROM {} WHERE
+            x_pos_hive, y_pos_hive, orientation_hive FROM {} WHERE
             cam_id = %s AND timestamp >= %s AND timestamp < %s AND
             x_pos_hive >= %s AND x_pos_hive < %s AND
             y_pos_hive >= %s AND y_pos_hive < %s AND
@@ -338,7 +338,7 @@ def get_detections_for_location_in_frame(frame_id, xlim, ylim, confidence_thresh
         sql_statement = """
             SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
             track_id,
-            x_pos, y_pos, orientation FROM {} WHERE
+            x_pos_hive, y_pos_hive, orientation_hive FROM {} WHERE
             frame_id = %s AND
             x_pos_hive >= %s AND x_pos_hive < %s AND
             y_pos_hive >= %s AND y_pos_hive < %s AND

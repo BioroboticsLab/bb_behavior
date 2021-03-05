@@ -55,7 +55,7 @@ class DatabaseCursorContext(object):
         self._cursor.execute("""PREPARE get_detections_for_location_between AS
             SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
             track_id,
-            x_pos, y_pos, orientation FROM {} WHERE
+            x_pos_hive, y_pos_hive, orientation_hive FROM {} WHERE
             cam_id = $1 AND timestamp >= $2 AND timestamp < $3 AND
             x_pos_hive >= $4 AND x_pos_hive < $5 AND
             y_pos_hive >= $6 AND y_pos_hive < $7 AND
@@ -64,7 +64,7 @@ class DatabaseCursorContext(object):
         self._cursor.execute("""PREPARE get_detections_for_location_in_frame AS
             SELECT bee_id, timestamp, frame_id, detection_type, detection_idx,
             track_id,
-            x_pos, y_pos, orientation FROM {} WHERE
+            x_pos_hive, y_pos_hive, orientation_hive FROM {} WHERE
             frame_id = $1 AND
             x_pos_hive >= $2 AND x_pos_hive < $3 AND
             y_pos_hive >= $4 AND y_pos_hive < $5 AND
