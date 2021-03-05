@@ -1,3 +1,4 @@
+import contextlib
 import multiprocessing, threading
 import inspect
 import queue
@@ -37,14 +38,55 @@ class ParallelPipeline(object):
     jobs = None
     done = 0
     
-    def __init__(self, jobs = [], n_thread_map = {}, queue_size_map = {}, thread_context_factory=None):
+    def __init__(self, jobs = [], n_thread_map = {}, queue_size_map = {}, thread_context_factory=None, unroll_sequentially=False):
         self.jobs = jobs
         self.n_thread_map = n_thread_map
         self.queue_size_map = queue_size_map
         self.use_threads = True
         self.thread_context_factory = thread_context_factory
-        
+        self.unroll_sequentially = unroll_sequentially
+
+    def execute_sequentially(self, *first_args, **first_kwargs):
+        def get_step_results(fn, *args, thread_context=None, **kwargs):
+            def fn_wrap(*args, **kwargs):
+                takes_thread_context = "thread_context" in inspect.signature(fn).parameters
+                if takes_thread_context:
+                    return fn(*args, thread_context=thread_context, **kwargs)
+                else:
+                    return fn(*args, **kwargs)
+            is_generator = inspect.isgeneratorfunction(fn)
+            results = None
+            if is_generator:
+                results = [r for r in fn_wrap(*args, **kwargs)]
+            else:
+                results = [fn_wrap(*args, **kwargs)]
+            return results
+
+        context = contextlib.nullcontext()
+        if self.thread_context_factory is not None:
+            context = self.thread_context_factory()
+        with context as ctx:
+            last_results = []
+            for idx, step_fn in enumerate(self.jobs):
+                step_results = []
+                if idx == 0:
+                    step_results = get_step_results(step_fn, *first_args, thread_context=ctx, **first_kwargs)
+                else:
+                    for arguments in last_results:
+                        if arguments is None:
+                            continue
+                        if type(arguments) is tuple:
+                            step_results.extend(get_step_results(step_fn, *arguments, thread_context=ctx))
+                        else:
+                            step_results.extend(get_step_results(step_fn, arguments, thread_context=ctx))
+                last_results = [r for r in step_results if r is not None]
+
+        return last_results
+
     def __call__(self, *args, **kwargs):
+        if self.unroll_sequentially:
+            return self.execute_sequentially(*args, **kwargs)
+
         def wrapper(inqueue, finished_barrier, outqueue, target, thread_context_factory=None):
             thread_context = None
             def _wrapped(thread_context=None):

@@ -410,6 +410,7 @@ class DataReader(object):
             return db.DatabaseCursorContext(application_name="DataReader")
         
         data_processing = [validate_data, store_data]
+        execute_sequentially = self._n_threads == 0
         if self.samples is not None:
             if self._verbose:
                 print("Generating data for samples of the provided dataframe.")
@@ -419,7 +420,8 @@ class DataReader(object):
                 if self._verbose:
                     print("Using chunked frames optimization.")
             pipeline = utils.processing.ParallelPipeline(jobs=data_source + data_processing,
-                                        n_thread_map={1:self._n_threads}, thread_context_factory=make_thread_context)
+                                        n_thread_map={1:self._n_threads}, thread_context_factory=make_thread_context,
+                                        unroll_sequentially=execute_sequentially)
             pipeline()
         else:
             assert self._from_timestamp is not None
@@ -428,7 +430,7 @@ class DataReader(object):
             if self._verbose:
                 print("Fetching data for the provided bee ids and timespan.")
             pipeline = utils.processing.ParallelPipeline(jobs=[iter_cam_ids, fetch_cam_id_timespan_data, split_timespan_frames] + data_processing,
-                                        n_thread_map={1:4})
+                                        n_thread_map={1:4}, unroll_sequentially=execute_sequentially)
             
             self._dataframe = []
             pipeline()
