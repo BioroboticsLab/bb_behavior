@@ -197,7 +197,8 @@ def get_bee_detections(bee_id, verbose=False, frame_id=None, frames=None,
 
     if cursor is None:
         with base.get_database_connection(application_name="get_bee_detections") as db:
-            return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, cursor=db.cursor(), use_hive_coords=use_hive_coords, **kwargs)
+            return get_bee_detections(bee_id, verbose=verbose, frame_id=frame_id, frames=frames, make_consistent=make_consistent,
+                cursor=db.cursor(), use_hive_coords=use_hive_coords, confidence_threshold=confidence_threshold, **kwargs)
     
     frames = frames or sampling.get_neighbour_frames(frame_id=frame_id, cursor=cursor, cursor_is_prepared=cursor_is_prepared, **kwargs)
     # Is frames a list of tuples? (Can also be a simple list of frame_ids.)
