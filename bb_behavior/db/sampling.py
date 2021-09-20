@@ -222,6 +222,7 @@ def get_bee_ids(frames, cursor=None):
 
 def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cursor_is_prepared=False,
                         n_frames_left=None, n_frames_right=None, seconds_left=None, seconds_right=None,
+                        fps=3,
                         s_frame_margin_leeway=2.0):
     """Retrieves a specified number of frames around a center frame from the database.
         
@@ -235,6 +236,7 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
             n_frames_right: right margin; defaults to n_frames
             seconds_left: optional left margin in seconds; defaults to seconds
             seconds_right: optional right margin in seconds; defaults to seconds
+            fps: frames per second to convert n_frames to seconds
             s_frame_margin_leeway: float or None
                 If given, the initial query is done with a bit more leeway around the timestamps to allow
                 for larger temporal gaps between images, trying to get exactly n_frames neighbours.
@@ -243,9 +245,9 @@ def get_neighbour_frames(frame_id, n_frames=None, seconds=None, cursor=None, cur
     """
     n_frames_left = n_frames_left or n_frames
     n_frames_right = n_frames_right or n_frames
-    seconds = seconds or (n_frames / 3 if n_frames else 5.0)
-    seconds_left = seconds_left or (seconds if n_frames_left is None else n_frames_left / 3)
-    seconds_right = seconds_right or (seconds if n_frames_right is None else n_frames_right / 3)
+    seconds = seconds or (n_frames / fps if n_frames else 5.0)
+    seconds_left = seconds_left or (seconds if n_frames_left is None else n_frames_left / fps)
+    seconds_right = seconds_right or (seconds if n_frames_right is None else n_frames_right / fps)
     if s_frame_margin_leeway is None:
         s_frame_margin_leeway = 0.0
 
