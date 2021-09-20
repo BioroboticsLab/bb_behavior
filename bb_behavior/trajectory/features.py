@@ -95,7 +95,8 @@ class DataReader(object):
     def __init__(self,
                     dataframe=None, sample_count=None,
                     from_timestamp=None, to_timestamp=None, bee_ids=None, use_hive_coords=False,
-                    frame_margin=13, target_column="target", progress="tqdm_notebook", n_threads=16, feature_procs="auto",
+                    frame_margin=13, frame_margin_left=None, frame_margin_right=None, fps=3,
+                    target_column="target", progress="tqdm_notebook", n_threads=16, feature_procs="auto",
                     chunk_frame_id_queries=False, verbose=False, Y_dtype=np.float32):
         self._dataframe = dataframe
         self._sample_count = sample_count
@@ -108,7 +109,13 @@ class DataReader(object):
             raise ValueError("The dataframe/sample_count arguments are mutually exclusive with the timestamp/bee_ids arguments.")
 
         self._use_hive_coords = use_hive_coords
-        self._frame_margin = frame_margin
+        self._fps = fps
+        if frame_margin_left is None:
+            self._frame_margin_left = frame_margin
+            self._frame_margin_right = frame_margin
+        else:
+            self._frame_margin_left = frame_margin_left
+            self._frame_margin_right = frame_margin_right
         self._target_column = target_column
         self._n_threads = n_threads
         self._tqdm = lambda x, **kwargs: x
@@ -199,8 +206,8 @@ class DataReader(object):
 
         try:
             datareader._samples = pandas.read_hdf(path, "samples")
-        except:
-            print("Original samples were not stored.")
+        except Exception as e:
+            print("Original samples were not stored. ({})".format(str(e)))
 
         return datareader
 
@@ -236,7 +243,8 @@ class DataReader(object):
         return self._dataset
 
     @staticmethod
-    def bee_id_to_trajectory(bee_id, frame_id=None, n_frames=None, frames=None, use_hive_coords=False, thread_context=None, detections=None):
+    def bee_id_to_trajectory(bee_id, frame_id=None, n_frames=None, n_frames_left=None, n_frames_right=None, frames=None,
+        use_hive_coords=False, thread_context=None, detections=None, fps=None):
         if bee_id is not None:
             assert not pandas.isnull(bee_id)
             bee_id = int(bee_id)
@@ -245,7 +253,9 @@ class DataReader(object):
             frame_id = int(frame_id)
         traj = db.get_interpolated_trajectory(
                                     bee_id,
-                                    frame_id=frame_id, n_frames=n_frames,
+                                    frame_id=frame_id,
+                                    n_frames=n_frames, n_frames_left=n_frames_left, n_frames_right=n_frames_right,
+                                    fps=fps,
                                     frames=frames,
                                     interpolate=True, verbose=False,
                                     cursor=thread_context, cursor_is_prepared=True,
@@ -286,23 +296,32 @@ class DataReader(object):
                         )
 
         def fetch_data_from_sample(index, bee_ids, frame_id, target, thread_context=None):
-            args = [(bee_id, frame_id, self._frame_margin) for bee_id in bee_ids]
-            data = [DataReader.bee_id_to_trajectory(*a, use_hive_coords=self._use_hive_coords, thread_context=thread_context) for a in args]
+            args = [(bee_id, frame_id) for bee_id in bee_ids]
+            data = [DataReader.bee_id_to_trajectory(*a,
+                    n_frames_left=self._frame_margin_left, n_frames_right=self._frame_margin_right,
+                    fps=self._fps,
+                    use_hive_coords=self._use_hive_coords, thread_context=thread_context
+                    ) for a in args]
             return index, data, target, bee_ids
         # Used when chunk_frame_id_queries is true.
         # This is an optimization to reduce the number of calls to the database and is likely only helpful when
         # the data contains many events from the same (or neighboured) frame ids.
         def iter_samples_chunk_frames():
             # Allow some leeway in the frame timestamps - make sure that we have the correct number later.
-            margin_in_seconds = (3 + self._frame_margin) / 3
+            margin_in_seconds_left = self._frame_margin_left / self._fps + 1
+            margin_in_seconds_right = self._frame_margin_right / self._fps + 1
             all_frame_ids = set(self.samples.frame_id.values)
 
             with db.DatabaseCursorContext(application_name="Batch frame ids") as cursor:
                 frame_metadata = db.get_frame_metadata(frames=all_frame_ids, cursor=cursor, cursor_is_prepared=True)
                 # First, fetch all the required neighbouring frames.
                 for frame_id, cam_id, timestamp in self._tqdm(frame_metadata[["frame_id", "cam_id", "timestamp"]].itertuples(index=False), total=frame_metadata.shape[0]):
-                    ts_from, ts_to = timestamp - margin_in_seconds, timestamp + margin_in_seconds
+                    ts_from, ts_to = timestamp - margin_in_seconds_left, timestamp + margin_in_seconds_right
                     neighbour_frames = db.get_frames(cam_id, ts_from, ts_to, cursor=cursor, cursor_is_prepared=True)
+                    if len(neighbour_frames) < self.timesteps:
+                        if self._verbose:
+                            print("Not enough neighbour frames for frame {} (found {}) (1)".format(frame_id, len(neighbour_frames)))
+                        continue
                     # We have potentially requested a bit more frames than we need. Filter.
                     # First, find out where our target frame actually is.
                     middle_index = None
@@ -315,10 +334,10 @@ class DataReader(object):
                             print("Center frame ID not in return value of db.get_frames.")
                         continue
                     # Then cut the frames around our target frame based on index (instead of timestamp).
-                    neighbour_frames = neighbour_frames[(middle_index - self._frame_margin):(middle_index + self._frame_margin + 1)]
+                    neighbour_frames = neighbour_frames[(middle_index - self._frame_margin_left):(middle_index + self._frame_margin_right + 1)]
                     if len(neighbour_frames) != self.timesteps:
                         if self._verbose:
-                            print("Not enough neighbour frames for frame {} (found {})".format(frame_id, len(neighbour_frames)))
+                            print("Not enough neighbour frames for frame {} (found {}) (2)".format(frame_id, len(neighbour_frames)))
                         continue
 
                     matching_samples = self.samples.frame_id == frame_id
@@ -358,8 +377,9 @@ class DataReader(object):
                 yield cam_id
 
         def fetch_cam_id_timespan_data(cam_id, **kwargs):
-            margin_in_seconds = self._frame_margin * 0.33
-            frames = db.get_frames(cam_id=cam_id, ts_from=self._from_timestamp - margin_in_seconds, ts_to=self._to_timestamp + margin_in_seconds)
+            margin_in_seconds_left = self._frame_margin_left / self.fps
+            margin_in_seconds_right = self._frame_margin_right / self.fps
+            frames = db.get_frames(cam_id=cam_id, ts_from=self._from_timestamp - margin_in_seconds_left, ts_to=self._to_timestamp + margin_in_seconds_right)
             if self._verbose:
                 print("{} frames found for cam id {} for the provided timespan.".format(len(frames), cam_id))
             if len(frames) == 0:
@@ -377,12 +397,12 @@ class DataReader(object):
                     return None
                 trajectories.append(traj)
 
-            for index in self._tqdm(range(self._frame_margin, len(frames) - self._frame_margin - 1), desc="Calculating camera data", leave=False):
+            for index in self._tqdm(range(self._frame_margin_left, len(frames) - self._frame_margin_right - 1), desc="Calculating camera data", leave=False):
                 timestamp, frame_id, cam_id = frames[index]
                 
-                subtrajs = [traj[(index - self._frame_margin):(index + self._frame_margin + 1), :] for traj in trajectories]
+                subtrajs = [traj[(index - self._frame_margin_left):(index + self._frame_margin_right + 1), :] for traj in trajectories]
                 
-                incomplete_trajs = np.any([np.sum(traj[:, -1]) < self._frame_margin // 2 for traj in subtrajs])
+                incomplete_trajs = np.any([np.sum(traj[:, -1]) < (self._frame_margin_left + self._frame_margin_right) // 4 for traj in subtrajs])
                 if incomplete_trajs:
                     continue
 
@@ -478,7 +498,7 @@ class DataReader(object):
     def timesteps(self):
         if type(self._X) == np.ndarray:
             return self._X.shape[2]
-        return 2 * self._frame_margin + 1
+        return (self._frame_margin_left + self._frame_margin_right) + 1
     @property
     def n_features(self):
         if type(self._X) == np.ndarray:
