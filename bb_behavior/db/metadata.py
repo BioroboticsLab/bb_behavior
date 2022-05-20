@@ -138,7 +138,6 @@ def get_bee_hatch_dates(bee_ids, cursor=None, return_maximum_date=False, respect
         date = lookup_dict[bee_id] if bee_id in lookup_dict else None
         if date is not None and bee_id in bee_id_to_date_override_map:
             date = bee_id_to_date_override_map[bee_id]
-            assert date is not None
         else:
             if respect_bounds:
                 if date == bounding_date:
