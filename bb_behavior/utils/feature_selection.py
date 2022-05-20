@@ -13,7 +13,6 @@ import queue
 import sklearn.metrics
 import sklearn.preprocessing
 import sklearn.model_selection
-import sklearn.externals.joblib
 
 class StochasticFeatureSelection(object):
 	
@@ -21,7 +20,7 @@ class StochasticFeatureSelection(object):
 				 dropped_fraction=0.5, step=256, verbose=1, cv=10, feature_names=None, iterations=-1,
 				 confidence_sigma=1.645, min_n_features=5, min_rows_required_to_drop=32, jupyter=False,
 				 retain_experiments=False, n_jobs=-1, cv_n_jobs=-1, iteration_callback=None, reuse_available_information=False,
-				 static_train_test_split=False):
+				 static_train_test_split=False, is_regression="auto"):
 		if scoring is None:
 			self.scoring = sklearn.metrics.make_scorer(sklearn.metrics.mean_squared_error, greater_is_better=False)
 		else:
@@ -39,7 +38,8 @@ class StochasticFeatureSelection(object):
 		self.retain_experiments = retain_experiments
 		self.n_jobs = n_jobs
 		self.cv_n_jobs = cv_n_jobs
-		
+		self.is_regression = is_regression
+
 		self.iteration_callback = iteration_callback
 		self.reuse_available_information = reuse_available_information
 		self.static_train_test_split = static_train_test_split
@@ -50,7 +50,7 @@ class StochasticFeatureSelection(object):
 	
 	def printwrap(self, text):
 		try:
-			from tqdm import tqdm
+			from tqdm.auto import tqdm
 			tqdm.write(text)
 		except:
 			print(text)
@@ -58,12 +58,8 @@ class StochasticFeatureSelection(object):
 	def iterwrap(self, iterator):
 		if self.verbose != 0:
 			try:
-				if self.jupyter:
-					from tqdm import tqdm_notebook
-					return tqdm_notebook(iterator)
-				else:
-					from tqdm import tqdm
-					return tqdm(iterator)
+				import tqdm.auto
+				return tqdm.auto.tqdm(iterator)
 			except:
 				return iterator
 		return iterator
@@ -90,16 +86,25 @@ class StochasticFeatureSelection(object):
 		if reset and not self.reuse_available_information:
 			self.reset()
 			self.available_feature_mask = np.ones(X.shape[1], dtype=np.bool)
+
+			if self.is_regression == "auto":
+				self.is_regression = len(np.unique(y)) > 10
 		else:
 			assert self.available_feature_mask is not None
 			assert self.available_feature_mask.shape[0] == X.shape[1]
 		
 		def do_split(_X, _y, _groups, only_one=False):
 			if groups is None:
-				if only_one:
-					return next(sklearn.model_selection.StratifiedShuffleSplit().split(_X, _y))
+				if not self.is_regression:
+					split_model = sklearn.model_selection.StratifiedShuffleSplit
 				else:
-					return list(sklearn.model_selection.StratifiedShuffleSplit(n_splits=self.cv).split(_X, _y))
+					split_model = sklearn.model_selection.ShuffleSplit
+					
+				if only_one:
+					return next(split_model().split(_X, _y))
+				else:
+					return list(split_model(n_splits=self.cv).split(_X, _y))
+
 			else:
 				if only_one:
 					return next(sklearn.model_selection.GroupShuffleSplit().split(_X, _y, groups=_groups))
@@ -192,7 +197,7 @@ class StochasticFeatureSelection(object):
 				return r
 			
 			new_experiments = joblib.Parallel(n_jobs=number_of_jobs, backend="threading")(\
-								(joblib.delayed(run_experiment, check_pickle=False)(i)) for i in range(self.step - len(current_experiment_set)))
+								(joblib.delayed(run_experiment)(i)) for i in range(self.step - len(current_experiment_set)))
 			current_experiment_set = current_experiment_set + [new_exp for new_exp in new_experiments if not new_exp is None]
 	
 				
@@ -260,7 +265,7 @@ class StochasticFeatureSelection(object):
 			
 			# Now do a final cross-validation with the remaining features.
 			# Once with all the samples.
-			with sklearn.externals.joblib.parallel_backend('threading'):
+			with joblib.parallel_backend('threading'):
 				cv_results = sklearn.model_selection.cross_val_score(self.model, X[:,self.available_feature_mask], y,
 									cv=cross_validation_splits, scoring=self.scoring, n_jobs=self.cv_n_jobs)
 			last_best_cv_median_idx = None
@@ -364,3 +369,57 @@ class StochasticFeatureSelection(object):
 			pars = pickle.load(f)
 			self.from_dict(pars)
 		return self
+
+	
+	def plot_results(self, title="Feature Selection"):
+
+		fig, ax = plt.subplots(1, 1, figsize=(16, 4))
+		plt.boxplot(self.cross_validation_data, positions=range(len(self.dropped_features) - 1))
+		ax.plot(self.cv_all_median, "k-")
+		ax.plot(self.cv_all_mean, "r-", alpha=0.5)
+		ax.fill_between(range(len(self.cv_all_mean)), 
+						np.array(self.cv_all_mean) - np.array(self.cv_all_std), np.array(self.cv_all_mean) + np.array(self.cv_all_std),
+						color="r", alpha=0.2)
+		ax.fill_between(range(len(self.cv_all_mean)), 
+						np.array(self.cv_all_mean) - 2.0*np.array(self.cv_all_std), np.array(self.cv_all_mean) + 2.0*np.array(self.cv_all_std),
+						color="r", alpha=0.15)
+		for x in np.where(np.array(self.cv_significance) > 1.0)[0]:
+			ax.axvline(x, linestyle="--", color="g")
+		for x in np.where(np.array(self.cv_significance) <= 0.0)[0]:
+			ax.axvline(x, linestyle=":", color="r")
+		
+		plt.xticks(range(len(self.dropped_features)),
+			self.dropped_features, rotation=60)
+		
+		support = self.get_support()
+		
+		drop_until = np.where(np.array(self.cv_significance) >= 2)[0][-1]
+		dropped_features = set(self.dropped_features[:drop_until])
+		kept_features = set(self.dropped_features[drop_until:])
+		support_mask = [(feature in kept_features) for feature in self.feature_names]
+		support_mask = np.array(support_mask)
+		support = support_mask
+		full_support_mask = support_mask
+		
+		print("If dropping until the score does not improve anymore (default):")
+		print("Kept: {}".format(kept_features))
+		print("Dropped: {}".format(dropped_features))
+		
+		drop_until = np.where(np.array(self.cv_significance) >= 1)[0][-1]
+		dropped_features = set(self.dropped_features[:drop_until])
+		kept_features = set(self.dropped_features[drop_until:])
+		support_mask = [(feature in kept_features) for feature in self.feature_names]
+		support_mask = np.array(support_mask)
+		support = support_mask
+		minimal_support_mask = support_mask
+
+		print("If dropping until the score does not decrease again:")
+		print("Kept: {}".format(kept_features))
+		print("Dropped: {}".format(dropped_features))
+
+		ax.axvline(drop_until, linestyle="-", color="b", alpha=0.5)
+		
+		plt.title("{}: {}/{} features".format(title, support.sum(), support.shape[0]))
+		plt.show()
+
+		return full_support_mask, minimal_support_mask
