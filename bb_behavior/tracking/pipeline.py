@@ -25,7 +25,7 @@ def get_timestamps_for_beesbook_video(path):
     """Takes the file path to a beesbook video (e.g. "/home/david/video.mp4").
     The function loads the corresponding timestamp-file (e.g. "/home/david/video.txt") and parses the
     timestamps for all frames.
-    
+
     Arguments:
         path: file path to video (incl. .mp4 or .avi extension).
             A file with the same name but a .txt extension has to exist in the same directory.
@@ -40,11 +40,11 @@ def get_timestamps_for_beesbook_video(path):
     ts_path = path[:-3] + "txt"
     with open(ts_path, "r") as f:
         return [to_timestamp(l) for l in f.read().splitlines()]
-    
+
 def detect_markers_in_beesbook_video(video_path, *args, **kwargs):
     """Wraps detect_markers_in_video but loads timestamps from a .txt file next to the video file.
     See get_timestamps_for_beesbook_video.
-    
+
     Arguments:
         video_path: Path to beesbook video. A .txt-extension file with the same name has to exist in the same directory.
     Returns:
@@ -56,20 +56,20 @@ def detect_markers_in_beesbook_video(video_path, *args, **kwargs):
 def get_default_pipeline(localizer_threshold=None, verbose=False):
     """Creates and returns a bb_pipeline Pipeline object that is configured to
     take an image and return all info required for bb_binary (PipelineResult).
-    
+
     Arguments:
         localizer_threshold: float
             Threshold for the localizer in the pipeline.
         verbose: bool
             Whether to also provide the CrownOverlay output for display purposes (slower).
-        
+
     Returns:
         bb_pipeline.pipeline.Pipeline object, ready to be used.
     """
     import pipeline
     import pipeline.pipeline
     import pipeline.objects
-    
+
     outputs = [pipeline.objects.PipelineResult]
     if verbose:
         outputs += [pipeline.objects.CrownOverlay]
@@ -163,7 +163,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             timestamps = [t.timestamp() for t in timestamps]
     import skimage.transform
     import pipeline as bb_pipeline
-        
+
     interrupted = False
     def interruptable_frame_generator(gen):
         nonlocal interrupted
@@ -172,18 +172,18 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             if interrupted:
                 print("Stopping early...")
                 break
-    
+
     def preprocess_image(im):
         if clahe:
             im = skimage.exposure.equalize_adapthist(im, kernel_size=3 * tag_pixel_diameter)
-        im = (skimage.transform.rescale(im, scale, order=1, multichannel=False, anti_aliasing=False, mode='constant') * 255).astype(np.uint8)
+        im = (skimage.transform.rescale(im, scale, order=1, anti_aliasing=False, mode='constant') * 255).astype(np.uint8)
         return im
 
     def get_frames_from_images():
         import skimage.io
         for idx, (path, ts) in enumerate(zip(interruptable_frame_generator(source_path), timestamps)):
             if type(path) is str:
-                im = skimage.io.imread(path, as_gray=True)            
+                im = skimage.io.imread(path, as_gray=True)
             else:
                 im = path
             im = preprocess_image(im)
@@ -194,7 +194,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
 
     def get_frames_from_video():
         frames_generator = bb_pipeline.io.raw_frames_generator(source_path, format=None)
-        
+
         for idx, (im, ts) in enumerate(zip(interruptable_frame_generator(frames_generator), timestamps)):
             assert im is not None
             # Skip broken videos.
@@ -205,17 +205,17 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             if im.min() == im.max():
                 print("Warning: Frame {} of file {} is empty.".format(idx, source_path))
                 continue
-            
+
             assert im.shape[0] > 0
             assert im.shape[1] > 0
 
             im = preprocess_image(im)
 
             yield idx, ts, im
-            
+
             if n_frames is not None and idx >= n_frames - 1:
                 break
-    
+
     def get_detections_from_frame(idx, ts, im, thread_context=None, **kwargs):
         nonlocal decoder_pipeline
         if decoder_pipeline is not None:
@@ -224,7 +224,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             if "pipeline" not in thread_context:
                 thread_context["pipeline"] = pipeline_factory()
             pipeline_results = thread_context["pipeline"]([im])
-            
+
         #confident_ids = [r for c, r in zip(confidences, decoded_ids) if c >= threshold]
         #decimal_ids = set([ids.BeesbookID.from_bb_binary(i).as_ferwar() for i in confident_ids])
 
@@ -238,9 +238,9 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             plt.imshow(frame)
             plt.axis("off")
             plt.show()
-        
+
         frame_id = bb_pipeline.io.unique_id()
-        required_results = pipeline_results[PipelineResult]    
+        required_results = pipeline_results[PipelineResult]
         n_detections = required_results.orientations.shape[0]
         decoded_ids = [list(r) for r in list(required_results.ids)]
 
@@ -250,7 +250,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 "beeID": decoded_ids,
                 "xpos": required_results.tag_positions[:, 1] / scale,
                 "ypos": required_results.tag_positions[:, 0] / scale,
-                "camID": [cam_id] * n_detections, 
+                "camID": [cam_id] * n_detections,
                 "zrotation": required_results.orientations[:, 0],
                 "timestamp": [ts] * n_detections,
                 "frameIdx": [idx] * n_detections,
@@ -258,7 +258,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 "detection_index": range(n_detections),
                 "detection_type": "TaggedBee"
             }
-            
+
             frame_data = pd.DataFrame(frame_data)
 
             if calculate_confidences:
@@ -278,7 +278,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 "beeID": [np.nan] * n_bees,
                 "xpos": required_results.bee_positions[:, 1] / scale,
                 "ypos": required_results.bee_positions[:, 0] / scale,
-                "camID": [cam_id] * n_bees, 
+                "camID": [cam_id] * n_bees,
                 "zrotation": [np.nan] * n_bees,
                 "timestamp": [ts] * n_bees,
                 "frameIdx": [idx] * n_bees,
@@ -298,12 +298,12 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                 frame_data = bee_data
 
         return idx, frame_id, ts, frame_data
-    
-    
+
+
     progress_bar = None
     if progress is not None:
         progress_bar = progress(total=n_frames)
-        
+
     def save_frame_data(idx, frame_id, ts, frame_data, **kwargs):
         nonlocal frame_info
         nonlocal video_dataframe
@@ -312,13 +312,13 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             video_dataframe.append(frame_data)
         if progress is not None:
             progress_bar.update()
-        
+
     source = get_frames_from_video
     if source_type == "image":
         source = get_frames_from_images
         if isinstance(source_path, str):
             source_path = [source_path]
-            
+
     if use_parallel_jobs:
         from ..utils.processing import ParallelPipeline
 
@@ -331,7 +331,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
                     return dict()
                 def __exit__(self, *args):
                     pass
-                
+
             n_pipeline_jobs = 4
             thread_context_factory = Ctx
 
@@ -360,5 +360,5 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
         video_dataframe.frameId = video_dataframe.frameId.astype(np.uint64)
     else:
         video_dataframe = None
-    
+
     return frame_info, video_dataframe
