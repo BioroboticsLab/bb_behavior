@@ -70,18 +70,12 @@ def get_default_tracker_settings(detection_model_path, tracklet_model_path,
     #     tracklet_model = joblib.load(f)
 
     # Load the detection model
-    detection_model_booster = xgb.Booster()
-    detection_model_booster.load_model(detection_model_path)
-    # Wrap the Booster in an XGBClassifier
     detection_model = xgb.XGBClassifier()
-    detection_model._Booster = detection_model_booster
+    detection_model.load_model(detection_model_path)
 
-    # Load the tracklet model as a Booster object
-    tracklet_model_booster = xgb.Booster()
-    tracklet_model_booster.load_model(tracklet_model_path)
-    # Wrap the Booster in an XGBClassifier
+    # Load the tracklet model
     tracklet_model = xgb.XGBClassifier()
-    tracklet_model._Booster = tracklet_model_booster
+    tracklet_model.load_model(tracklet_model_path)
 
 
     tracklet_kwargs = dict(
