@@ -50,7 +50,7 @@ def plot_spatial_values(iterable,
         w = int((x_lim[1] - x_lim[0]) / bin_width) + 1
         h = int((y_lim[1] - y_lim[0]) / bin_width) + 1
         return (np.zeros(shape=(h, w), dtype=np.float32), # Running mean
-                np.zeros(shape=(h, w), dtype=np.int), # Running count
+                np.zeros(shape=(h, w), dtype=int), # Running count
                 np.zeros(shape=(h, w), dtype=np.float32)) # M2 aggregator (see Welford)
     accumulators = defaultdict(make_empty_container)
 

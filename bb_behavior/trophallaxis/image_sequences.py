@@ -142,8 +142,8 @@ def get_crops_for_bees(traj0, traj1, images):
     to_head_position(traj1)
     
     s = 128
-    xs = (((traj0[:, 0] + traj1[:, 0]) / 2.0) - s // 2).astype(np.int32)
-    ys = (((traj0[:, 1] + traj1[:, 1]) / 2.0) - s // 2).astype(np.int32)
+    xs = (((traj0[:, 0] + traj1[:, 0]) / 2.0) - s // 2).astype(int)
+    ys = (((traj0[:, 1] + traj1[:, 1]) / 2.0) - s // 2).astype(int)
     
     all_xy0, all_xy1, cropped_images = [], [], []
     
