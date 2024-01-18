@@ -276,7 +276,7 @@ def find_close_points(XY, max_distance, min_distance, distance_func=None, return
         import scipy.spatial.distance
         # Different approach when using a custom distance function.
         distances = scipy.spatial.distance.pdist(XY, metric=distance_func)
-        valid = np.ones(shape=(distances.shape[0],), dtype=np.bool)
+        valid = np.ones(shape=(distances.shape[0],), dtype=bool)
         if max_distance is not None:
             valid = valid & (distances <= max_distance)
         if min_distance is not None:
