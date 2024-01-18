@@ -30,7 +30,8 @@ from ..plot.misc import draw_ferwar_id_on_axis
 from collections import defaultdict, namedtuple
 import datetime, pytz
 import dill
-import joblib
+# import joblib
+import xgboost as xgb
 import math
 import numpy as np
 import pandas as pd
@@ -63,10 +64,25 @@ def get_default_tracker_settings(detection_model_path, tracklet_model_path,
     #detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
     #tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
 
-    with open(detection_model_path, "rb") as f:
-        detection_model = joblib.load(f)
-    with open(tracklet_model_path, "rb") as f:
-        tracklet_model = joblib.load(f)
+    # with open(detection_model_path, "rb") as f:
+    #     detection_model = joblib.load(f)
+    # with open(tracklet_model_path, "rb") as f:
+    #     tracklet_model = joblib.load(f)
+
+    # Load the detection model
+    detection_model_booster = xgb.Booster()
+    detection_model_booster.load_model(detection_model_path)
+    # Wrap the Booster in an XGBClassifier
+    detection_model = xgb.XGBClassifier()
+    detection_model._Booster = detection_model_booster
+
+    # Load the tracklet model as a Booster object
+    tracklet_model_booster = xgb.Booster()
+    tracklet_model_booster.load_model(tracklet_model_path)
+    # Wrap the Booster in an XGBClassifier
+    tracklet_model = xgb.XGBClassifier()
+    tracklet_model._Booster = tracklet_model_booster
+
 
     tracklet_kwargs = dict(
         max_distance_per_second = 30.0,
