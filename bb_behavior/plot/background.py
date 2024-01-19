@@ -85,7 +85,7 @@ def generate_mode_images(gen, only_return_one=False, smoothing=0.95):
     if first_image is None:
         return None
 
-    is_float = not (first_image.dtype is int)
+    is_float = not np.issubdtype(first_image.dtype, np.integer)
     if is_float and first_image.max() > 1.0:
         raise ValueError("Image appears to be floating data type but max value is above 1.0.")
     histogram = np.zeros(shape=(bins, first_image.shape[0], first_image.shape[1]), dtype=np.float32)
