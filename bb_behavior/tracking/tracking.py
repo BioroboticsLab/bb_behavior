@@ -61,14 +61,6 @@ def make_scaling_homography_fn(pixels_to_millimeter_ratio):
 def get_default_tracker_settings(detection_model_path, tracklet_model_path,
         detection_classification_threshold=0.6, tracklet_classification_threshold=0.5):
 
-    #detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
-    #tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
-
-    # with open(detection_model_path, "rb") as f:
-    #     detection_model = joblib.load(f)
-    # with open(tracklet_model_path, "rb") as f:
-    #     tracklet_model = joblib.load(f)
-
     # Load the detection model
     detection_model = xgb.XGBClassifier()
     detection_model.load_model(detection_model_path)
