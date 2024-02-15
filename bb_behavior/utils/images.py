@@ -14,7 +14,7 @@ def get_crop_from_image(xy, image, width=128, clahe=True):
             Cropped image.
     """
     
-    xy = (xy - width // 2).reshape(1, 2).astype(np.int32)
+    xy = (xy - width // 2).reshape(1, 2).astype(int)
     if type(image) is not list:
         image = [image]
 

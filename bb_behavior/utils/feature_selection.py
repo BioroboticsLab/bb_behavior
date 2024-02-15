@@ -85,7 +85,7 @@ class StochasticFeatureSelection(object):
 		# When doing a fresh start, initialize a few variables.
 		if reset and not self.reuse_available_information:
 			self.reset()
-			self.available_feature_mask = np.ones(X.shape[1], dtype=np.bool)
+			self.available_feature_mask = np.ones(X.shape[1], dtype=bool)
 
 			if self.is_regression == "auto":
 				self.is_regression = len(np.unique(y)) > 10
@@ -171,12 +171,12 @@ class StochasticFeatureSelection(object):
 				absolute_dropout_number = 1
 				
 			def run_experiment(iteration):
-				selected_features = np.ones(feature_count, dtype=np.bool)
+				selected_features = np.ones(feature_count, dtype=bool)
 				selected_features[np.random.choice(selected_features.shape[0], absolute_dropout_number, replace=False)] = False
 				
 				assert self.available_feature_mask.sum() == selected_features.shape[0]
 				
-				final_mask = np.zeros(X.shape[1], dtype=np.bool)
+				final_mask = np.zeros(X.shape[1], dtype=bool)
 				final_mask[self.available_feature_mask] = selected_features
 				
 				model = model_queue.get()

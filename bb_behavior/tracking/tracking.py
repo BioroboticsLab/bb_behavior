@@ -3,18 +3,20 @@ It is not optimized for high-performance throughput but for accessibility.
 
 Usage:
     Have video (or list of images) ready.
-    Have stored tracking parameters ready.
+    Have stored tracking parameters ready (usually two .json files; one for the detection model and one for the tracklet model).
 
+    Then use the functions provied by bb_behavior.tracking as follows:
     ```
-    # For the stored tracking parameters to resolve to the correct names.
-    import math
-    import numpy as np
-    from bb_tracking.data.constants import DETKEY
-    from bb_tracking.tracking import distance_orientations_v, distance_positions_v
+    import bb_behavior.tracking
 
-    frame_info, detections = detect_markers_in_video(video_path, ...)
-    tracks = track_detections_dataframe(detections, tracker=stored_tracking_parameters, ...)
-    display_tracking_results(video_path, frame_info, detections, tracks)
+    pixels_to_mm_conversion = 1.0 # Use the factor appropriate for your data (more complex homographies are supported as well through the homography_fn argument).
+    
+    # Here, most arguments are left at their default value. Feel free to have a look at additional arguments.
+    frame_info, detections = bb_behavior.tracking.detect_markers_in_video(video_path)
+    tracks = bb_behavior.tracking.track_detections_dataframe(
+                detections, homography_scale=pixels_to_mm_conversion,
+                tracker_settings_kwargs=dict(detection_model_path="path/to/json", tracklet_model_path="path/to/json"))
+    bb_behavior.tracking.display_tracking_results(tracks, path=video_path)
     ```
 
 
@@ -30,7 +32,6 @@ from ..plot.misc import draw_ferwar_id_on_axis
 from collections import defaultdict, namedtuple
 import datetime, pytz
 import dill
-import joblib
 import math
 import numpy as np
 import pandas as pd
@@ -60,13 +61,8 @@ def make_scaling_homography_fn(pixels_to_millimeter_ratio):
 def get_default_tracker_settings(detection_model_path, tracklet_model_path,
         detection_classification_threshold=0.6, tracklet_classification_threshold=0.5):
 
-    #detection_model = bb_tracking.models.XGBoostRankingClassifier.load(detection_model_path)
-    #tracklet_model = bb_tracking.models.XGBoostRankingClassifier.load(tracklet_model_path)
-
-    with open(detection_model_path, "rb") as f:
-        detection_model = joblib.load(f)
-    with open(tracklet_model_path, "rb") as f:
-        tracklet_model = joblib.load(f)
+    detection_model = bb_tracking.models.load_detection_model(detection_model_path)
+    tracklet_model = bb_tracking.models.load_tracklet_model(tracklet_model_path)
 
     tracklet_kwargs = dict(
         max_distance_per_second = 30.0,
@@ -85,7 +81,7 @@ def get_default_tracker_settings(detection_model_path, tracklet_model_path,
         max_cost=1.0 - tracklet_classification_threshold
         )
     return dict(tracklet_kwargs=tracklet_kwargs, track_kwargs=track_kwargs)
-                
+
 def iterate_dataframe_as_detections(dataframe, H):
     """Takes a dataframe (e.g. as returned by pipeline.detect_markers_in_video) and yields the rows in a tracking-friendly format.
     """
@@ -93,33 +89,33 @@ def iterate_dataframe_as_detections(dataframe, H):
         return
     if dataframe.shape[0] == 0:
         return
-    
+
     Bee = namedtuple("bee", ("xpos", "ypos", "idx", "localizerSaliency"))
-            
+
     dataframe = dataframe.sort_values("timestamp")
-    
+
     detection_type_map = dict(
         TaggedBee=bb_tracking.types.DetectionType.TaggedBee,
         UnmarkedBee=bb_tracking.types.DetectionType.UntaggedBee,
         BeeInCell=bb_tracking.types.DetectionType.BeeInCell,
         UpsideDownBee=bb_tracking.types.DetectionType.BeeOnGlass,
     )
-    
+
     assert len(dataframe.camID.unique()) == 1
     cam_id = dataframe.camID.values[0]
-    
+
     for (ts, frame_id), frame_df in dataframe.groupby(["timestamp", "frameId"], sort=True):
         frame_detections = []
         frame_datetime = None
         for (xpos, ypos, idx, localizer_saliency, timestamp, orientation, detection_type, bit_probabilities) in \
             frame_df[["xpos", "ypos", "detection_index", "localizerSaliency",
                        "timestamp", "zrotation", "detection_type", "beeID"]].itertuples(index=False):
-            
+
             xpos = np.float64(xpos)
             ypos = np.float64(ypos)
             orientation = np.float64(orientation)
             timestamp = np.float64(timestamp)
-            
+
             bee = Bee(xpos, ypos, idx, localizer_saliency)
             if type(bit_probabilities) is list:
                 bit_probabilities = np.array(bit_probabilities)
@@ -135,10 +131,10 @@ def iterate_dataframe_as_detections(dataframe, H):
                                        detection_type=detection_type, bit_probabilities=bit_probabilities,
                                        no_datetime_timestamps=True)
             frame_detections.append(detection)
-            
+
             if frame_datetime is None:
                 frame_datetime = datetime.datetime.fromtimestamp(timestamp, tz=pytz.UTC)
-        
+
         xy = [(detection.x_hive, detection.y_hive) for detection in frame_detections]
         frame_kdtree = scipy.spatial.cKDTree(xy)
         yield (cam_id, frame_id, frame_datetime, frame_detections, frame_kdtree)
@@ -151,7 +147,7 @@ def track_detections_dataframe(dataframe_or_generator,
                                 cam_id=None,
                                 tracker_settings_kwargs=dict()):
     """Takes a dataframe as generated by detect_markers_in_video and returns connected tracks.
-    
+
     Arguments:
         dataframe_or_generator: pandas.DataFrame or generator
             Detections per frame as returned by detect_markers_in_video.
@@ -169,7 +165,7 @@ def track_detections_dataframe(dataframe_or_generator,
     """
     if tracker_settings is None:
         tracker_settings = get_default_tracker_settings(**tracker_settings_kwargs)
-    
+
     if homography_fn is None:
         if homography_scale is None:
             raise ValueError("Either homography_fn or homography_scale must be given.")
@@ -188,7 +184,7 @@ def track_detections_dataframe(dataframe_or_generator,
             assert isinstance(dt, (np.floating, float))
             homography = homography_fn(cam_id, dt)
             yield from iterate_dataframe_as_detections(df, homography)
-    
+
     tracker = bb_tracking.repository_tracker.CamDataGeneratorTracker(
         iterate_dataframes(),
         cam_ids=(cam_id,),
@@ -213,7 +209,7 @@ def track_detections_dataframe(dataframe_or_generator,
 def plot_tracks(tracks, fig=None, use_individual_id_for_color=True, use_pixel_coordinates=False, draw_labels=True, draw_lines=True):
     import matplotlib.cm
     import matplotlib.pyplot as plt
-    
+
     new_figure = fig is None
     if new_figure:
         fig = plt.figure(figsize=(20, 20))
@@ -223,7 +219,7 @@ def plot_tracks(tracks, fig=None, use_individual_id_for_color=True, use_pixel_co
         id_to_color = list(set(tracks.bee_id.unique()))
         color_count = len(id_to_color)
     colors = np.linspace(0.0, 1.0, num=color_count+1)
-    
+
     x_coord, y_coord = "x_hive", "y_hive"
     if use_pixel_coordinates:
         x_coord, y_coord = "x_pixels", "y_pixels"
@@ -256,18 +252,18 @@ def display_tracking_results(tracks, path=None, image=None, fig_width=12, track_
     tracks_available = tracks.shape[0] > 0
     if not tracks_available:
         print("No tracks found. You might need to lower the confidence thresholds.")
-    
+
     # Print result image first.
     if image is None and path is not None:
         from ..io.videos import get_first_frame_from_video
         image = get_first_frame_from_video(path)
-    
+
     fig = plt.figure(figsize=(fig_width, fig_width))
     if image is not None:
         plt.imshow(image, cmap="gray")
     plot_tracks(tracks, fig=fig, use_pixel_coordinates=True, **track_plot_kws)
     plt.show()
-    
+
     print("Detection/track statistics:")
     # Show histogram of confidences, allowing to tune the tracking paramters.
     if "detection_confidence" in tracks.columns:
@@ -276,14 +272,14 @@ def display_tracking_results(tracks, path=None, image=None, fig_width=12, track_
         plt.xlabel("Detection confidence\n(decoded ID correctness)")
         plt.xlim(-0.1, 1.1)
         plt.show()
-    
+
     if "track_confidence" in tracks.columns:
         plt.figure(figsize=(fig_width, 2))
         plt.hist(tracks.track_confidence[~pd.isnull(tracks.track_confidence)])
         plt.xlabel("Track confidence\n(track ID correctness)")
         plt.xlim(-0.1, 1.1)
         plt.show()
-    
+
     # Show statistics about connected tracks
     if tracks_available:
         track_data = defaultdict(list)
@@ -297,12 +293,12 @@ def display_tracking_results(tracks, path=None, image=None, fig_width=12, track_
             assert (time_differences.shape[0] == distances.shape[0])
             track_data["speed"] += list(distances / time_differences)
             track_data["gap_length_seconds"] += list(time_differences)
-            
+
         plt.figure(figsize=(fig_width, 2))
         plt.hist(track_data["speed"], bins=50)
         plt.xlabel("Speed per frame in mm/s of tracked individuals")
         plt.show()
-        
+
         fig, ax = plt.subplots(figsize=(fig_width, 2))
         ax.hist(track_data["gap_length_seconds"], bins=50)
         ax.set_xlabel("Seconds")
@@ -312,7 +308,7 @@ def display_tracking_results(tracks, path=None, image=None, fig_width=12, track_
         plt.title("Gap length of individuals in successive frames")
         plt.tight_layout()
         plt.show()
-        
+
     # Print information about the identified individuals based on their ID.
     min_timestamp, max_timestamp = tracks.timestamp_posix.min(), tracks.timestamp_posix.max()
     print("Individual statistics:")
@@ -329,7 +325,7 @@ def display_tracking_results(tracks, path=None, image=None, fig_width=12, track_
         time_differences = np.diff(df.timestamp_posix.values)
         distances /= time_differences
         timestamps = df.timestamp_posix.values[1:]
-        
+
         fig, (ax, ax2) = plt.subplots(1, 2, figsize=(fig_width, 2) , gridspec_kw = {'width_ratios':[(fig_width - 2), 1]})
         ax.plot(timestamps, distances, "k-", label="Speed")
         ax.set_ylabel("mm/s")
