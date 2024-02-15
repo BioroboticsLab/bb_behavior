@@ -3,18 +3,20 @@ It is not optimized for high-performance throughput but for accessibility.
 
 Usage:
     Have video (or list of images) ready.
-    Have stored tracking parameters ready.
+    Have stored tracking parameters ready (usually two .json files; one for the detection model and one for the tracklet model).
 
+    Then use the functions provied by bb_behavior.tracking as follows:
     ```
-    # For the stored tracking parameters to resolve to the correct names.
-    import math
-    import numpy as np
-    from bb_tracking.data.constants import DETKEY
-    from bb_tracking.tracking import distance_orientations_v, distance_positions_v
+    import bb_behavior.tracking
 
-    frame_info, detections = detect_markers_in_video(video_path, ...)
-    tracks = track_detections_dataframe(detections, tracker=stored_tracking_parameters, ...)
-    display_tracking_results(video_path, frame_info, detections, tracks)
+    pixels_to_mm_conversion = 1.0 # Use the factor appropriate for your data (more complex homographies are supported as well through the homography_fn argument).
+    
+    # Here, most arguments are left at their default value. Feel free to have a look at additional arguments.
+    frame_info, detections = bb_behavior.tracking.detect_markers_in_video(video_path)
+    tracks = bb_behavior.tracking.track_detections_dataframe(
+                detections, homography_scale=pixels_to_mm_conversion,
+                tracker_settings_kwargs=dict(detection_model_path="path/to/json", tracklet_model_path="path/to/json"))
+    bb_behavior.tracking.display_tracking_results(tracks, path=video_path)
     ```
 
 
