@@ -230,7 +230,8 @@ class StochasticFeatureSelection(object):
 				other_population_median = np.median(metric_results_inactive)
 				signs = metric_results_active < other_population_median
 				test_results = scipy.stats.binomtest(signs.sum(), signs.shape[0], p=0.5, alternative="greater")
-				current_p_values.append(test_results.pvalue)
+				p_value = test_results.pvalue
+				current_p_values.append(p_value)
 				
 				if self.verbose >= 2:
 					self.printwrap("\t {:30s}: {:5.4f} -> {:5.4f}?\t p={:2.4f} \t\t({:4d}/{:4d})".format(f_name,
