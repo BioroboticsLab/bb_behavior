@@ -98,3 +98,4 @@ ENV/
 
 # VSC project settings
 settings.json
+.DS_Store
