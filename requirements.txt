@@ -9,3 +9,4 @@ torchvision
 matplotlib
 opencv-python
 astropy
+dill
