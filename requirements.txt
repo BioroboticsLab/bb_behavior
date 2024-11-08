@@ -4,8 +4,6 @@ numba
 # As this list is commonly passed to pip, use the package that can also be installed from pip..
 psycopg2-binary
 scikit-learn
-torch
-torchvision
 matplotlib
 opencv-python
 astropy
