@@ -41,16 +41,21 @@ def get_timestamps_for_beesbook_video(path):
     with open(ts_path, "r") as f:
         return [to_timestamp(l) for l in f.read().splitlines()]
 
-def detect_markers_in_beesbook_video(video_path, *args, **kwargs):
+def detect_markers_in_beesbook_video(video_path, ts_format='basler', *args, **kwargs):
     """Wraps detect_markers_in_video but loads timestamps from a .txt file next to the video file.
-    See get_timestamps_for_beesbook_video.
 
     Arguments:
         video_path: Path to beesbook video. A .txt-extension file with the same name has to exist in the same directory.
     Returns:
         frame_info, video_dataframe: see detect_markers_in_video
     """
-    timestamps = get_timestamps_for_beesbook_video(video_path)
+    # Check for ts_format in kwargs
+    if "ts_format" in kwargs:
+        ts_format = kwargs.pop("ts_format")
+
+    # timestamps = get_timestamps_for_beesbook_video(video_path)  # previous call
+    # updated:  Use the pipeline.io.get_timestamps function
+    timestamps = pipeline.io.get_timestamps(path_video=video_path, ts_format=ts_format,path_filelists=None)
     return detect_markers_in_video(video_path, timestamps=timestamps, *args, **kwargs)
 
 def get_default_pipeline(localizer_threshold=None, verbose=False):
