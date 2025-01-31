@@ -229,7 +229,7 @@ def create_tracking_video(
 
     # 1) Convert timestamps => frame_number
     if not pd.api.types.is_datetime64_any_dtype(df_final["timestamp"]):
-        df_final["timestamp"] = pd.to_datetime(df_final["timestamp"])
+        df_final["timestamp"] = pd.to_datetime(df_final["timestamp"],format="mixed")
     video_start_ts = pd.Timestamp(video_start_timestamp)
     df_final["relative_secs"] = (df_final["timestamp"] - video_start_ts).dt.total_seconds()
     # Using +1 so frames start at 1 (as your code does for ffmpeg extraction)
