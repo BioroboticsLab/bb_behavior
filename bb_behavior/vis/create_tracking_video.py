@@ -9,9 +9,20 @@ from PIL import Image, ImageDraw, ImageFont
 import matplotlib.cm as mpl_cm
 import matplotlib.font_manager as font_manager
 from matplotlib import font_manager
+import cv2
 
 from bb_utils.ids import BeesbookID
 
+def get_video_fps(video_path):
+    """Extracts FPS from video metadata using OpenCV."""
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)  # Read FPS property
+    cap.release()
+
+    if fps > 0:
+        return int(fps)  # Ensure it's an integer
+    else:
+        return None  # Return None if FPS extraction fails
 
 # Function to convert stringified lists back to Python lists
 def convert_to_list(value):
@@ -34,7 +45,6 @@ def create_tracking_video(
     video_path,
     output_video,
     video_start_timestamp,
-    fps=6,
     tracks_df=None,            # DataFrame for tagged bees with track info
     video_dataframe=None,      # DataFrame for raw detections (untagged or all)
     track_history=0,           # How many past frames to connect for track tails
@@ -75,8 +85,6 @@ def create_tracking_video(
         Output path for the annotated MP4.
     video_start_timestamp : str or pd.Timestamp
         Start time of the video for mapping timestamps → frames.
-    fps : float
-        Frame rate to assume for time→frame conversion (1 frame = 1/fps seconds).
     tracks_df : pd.DataFrame or None
         DataFrame for **tagged** bees with columns like:
           ['bee_id', 'bee_id_confidence', 'track_id', 'detection_confidence',
@@ -228,6 +236,8 @@ def create_tracking_video(
     df_final.sort_values("timestamp", inplace=True)
 
     # 1) Convert timestamps => frame_number
+    fps = get_video_fps(video_path)
+
     if not pd.api.types.is_datetime64_any_dtype(df_final["timestamp"]):
         df_final["timestamp"] = pd.to_datetime(df_final["timestamp"],format="mixed")
     video_start_ts = pd.Timestamp(video_start_timestamp)
