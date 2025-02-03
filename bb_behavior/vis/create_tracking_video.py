@@ -411,7 +411,7 @@ def create_tracking_video(
             "-framerate", str(fps),
             "-i", os.path.join(tmp_dir, "frame_%06d.jpg"),
             "-vf", scale_expr,
-            "-c:v", "libx264",
+            # "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             output_video
         ]
