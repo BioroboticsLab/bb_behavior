@@ -267,7 +267,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             frame_data = pd.DataFrame(frame_data)
 
             if calculate_confidences:
-                confidences = np.array([np.product(np.abs(0.5 - np.array(r)) * 2) for r in decoded_ids])
+                confidences = np.array([np.prod(np.abs(0.5 - np.array(r)) * 2) for r in decoded_ids])
                 frame_data["confidence"] = confidences
                 if confidence_filter is not None:
                     frame_data = frame_data[frame_data.confidence >= confidence_filter]
