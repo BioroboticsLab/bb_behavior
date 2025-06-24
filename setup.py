@@ -3,7 +3,7 @@
 try:
     from setuptools import setup, find_packages
 except ImportError:
-    from distutils.core import setup, find_packages
+    from setuptools import setup, find_packages
 
 def parse_requirements(filename):
     with open(filename, "r") as file:
