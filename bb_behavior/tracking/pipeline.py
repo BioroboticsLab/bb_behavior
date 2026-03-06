@@ -298,7 +298,7 @@ def detect_markers_in_video(source_path, source_type="auto", decoder_pipeline=No
             bee_data = pd.DataFrame(bee_data)
 
             if frame_data is not None:
-                frame_data = pd.concat((frame_data, bee_data))
+                frame_data = pd.concat([frame_data, bee_data])
             else:
                 frame_data = bee_data
 
