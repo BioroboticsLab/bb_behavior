@@ -164,6 +164,15 @@ def create_tracking_video(
         ]
         df_tagged = df_tagged[keep_cols].copy()
 
+        # Fix RPi-style timestamps: if timestamps are near epoch (1970),
+        # they are relative offsets that need rebasing to video_start_timestamp.
+        if pd.api.types.is_datetime64_any_dtype(df_tagged["timestamp"]):
+            if df_tagged["timestamp"].min() < pd.Timestamp("2000-01-01", tz="UTC"):
+                epoch = pd.Timestamp("1970-01-01", tz="UTC")
+                df_tagged["timestamp"] = (df_tagged["timestamp"] - epoch) + pd.Timestamp(video_start_timestamp)
+        elif df_tagged["timestamp"].min() < 10000:
+            df_tagged["timestamp"] = pd.to_timedelta(df_tagged["timestamp"], unit="s") + video_start_timestamp
+
         frames_list.append(df_tagged)
 
     ### B) Handle the video_dataframe (untagged or raw detections)
